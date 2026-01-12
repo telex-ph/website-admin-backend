@@ -1,0 +1,30 @@
+{
+  "name": "website",
+  "version": "1.0.0",
+  "description": "\"# telexph-admin\"",
+  "main": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.ts --env-file .env",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/telex-ph/telexph-admin.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/telex-ph/telexph-admin/issues"
+  },
+  "homepage": "https://github.com/telex-ph/telexph-admin#readme",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.0.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
