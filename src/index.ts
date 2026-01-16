@@ -1,8 +1,8 @@
 import express from "express";
 import mongoose from "mongoose";
-import blogRouter from "./routes/blog.router.ts";
-import authRouter from "./routes/auth.router.ts";
-import userRouter from "./routes/user.router.ts";
+import blogRouter from "./blogs/blog.router.ts";
+import authRouter from "./auth/auth.router.ts";
+import userRouter from "./users/user.router.ts";
 
 const app = express();
 const port = process.env.PORT;

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import bcrypt from "bcrypt";
-import User from "../models/User.ts";
+import User from "./User.ts";
 
 export const addUser = async (req: Request, res: Response) => {
   const { email, password } = req.body;

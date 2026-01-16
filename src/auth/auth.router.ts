@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcrypt";
 
-import { login } from "../controllers/auth.controller.ts";
+import { login } from "./auth.controller.ts";
 
 const router = Router();
 
