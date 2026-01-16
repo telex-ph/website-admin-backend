@@ -1,19 +1,25 @@
 import type { Request, Response } from "express";
+import { createUserSchema, type CreateUserDto } from "./dto/create-user.dto.ts";
 import bcrypt from "bcrypt";
 import User from "./User.ts";
 
 export const addUser = async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+  const parsed = createUserSchema.safeParse(req.body);
 
-  // Safe guards. Means all fields are required
-  if (!email) throw new Error("Email is required");
-  if (!password) throw new Error("Password is required");
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Zod Error. Invalid request data",
+    });
+  }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const user: CreateUserDto = parsed.data;
+
+  const hashedPassword = await bcrypt.hash(user.password, 10);
 
   try {
     const newUser = await User.create({
-      email,
+      email: user.email,
       // TODO: change this later. or maybe add to a const file
       role: "admin",
       password: hashedPassword,

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import Blog from "./Blog.ts";
-import { createBlogSchema } from "./dto/create-blog.dto.ts";
+import { createBlogSchema, type CreateBlogDto } from "./dto/create-blog.dto.ts";
 
 export const addBlog = async (req: Request, res: Response) => {
   const parsed = createBlogSchema.safeParse(req.body);
@@ -12,7 +12,7 @@ export const addBlog = async (req: Request, res: Response) => {
     });
   }
 
-  const blog = parsed.data;
+  const blog: CreateBlogDto = parsed.data;
 
   try {
     const neBlog = await Blog.create({
