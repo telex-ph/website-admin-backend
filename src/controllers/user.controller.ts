@@ -21,10 +21,10 @@ export const addUser = async (req: Request, res: Response) => {
     res.status(200).json(newUser);
   } catch (error: unknown) {
     if (error instanceof Error) {
-      console.error("Adding blog error:", error.message);
+      console.error("Adding user error:", error.message);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Blog error:", error);
+      console.error("User error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
