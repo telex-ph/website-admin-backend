@@ -1,16 +1,22 @@
 import type { Request, Response } from "express";
+import bcrypt from "bcrypt";
 import User from "../models/User.ts";
 
 export const addUser = async (req: Request, res: Response) => {
-  const { email } = req.body;
+  const { email, password } = req.body;
+
+  // Safe guards. Means all fields are required
+  if (!email) throw new Error("Email is required");
+  if (!password) throw new Error("Password is required");
+
+  const hashedPassword = await bcrypt.hash(password, 10);
 
   try {
     const newUser = await User.create({
       email,
       // TODO: change this later. or maybe add to a const file
       role: "admin",
-      // TODO: use bycrpt later
-      password: "$2a$10$1jHppZ6SOnm4wnTMDg0kPOY9FHu/0L31MdP50WaeGmnVkLpeLPpau",
+      password: hashedPassword,
     });
     res.status(200).json(newUser);
   } catch (error: unknown) {
