@@ -5,7 +5,7 @@ import bcrypt from "bcrypt";
 import {
   createAccessToken,
   createRefreshToken,
-} from "../helpers/create-token.ts";
+} from "./helpers/create-token.helper.ts";
 import type { AuthPayload } from "./types/auth-payload.type.ts";
 
 // This value should be in milliseconds

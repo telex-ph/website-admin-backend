@@ -1,5 +1,5 @@
 import * as jose from "jose";
-import type { AuthPayload } from "../auth/types/auth-payload.type.ts";
+import type { AuthPayload } from "../types/auth-payload.type.ts";
 
 const privatePEM = process.env.PRIVATE_KEY;
 
