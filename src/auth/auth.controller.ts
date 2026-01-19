@@ -74,7 +74,7 @@ export const refresh = async (req: Request, res: Response) => {
   // Client-related check
   const refreshToken = req.cookies.refreshToken;
   if (!refreshToken) {
-    return res.status(401).json({ message: "Missing refresh token" });
+    return res.status(401).json({ code: "REFRESH_TOKEN_EXPIRED" });
   }
 
   try {
