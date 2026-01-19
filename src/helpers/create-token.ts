@@ -1,4 +1,5 @@
 import * as jose from "jose";
+import type { AuthPayload } from "../auth/types/auth-payload.type.ts";
 
 const privatePEM = process.env.PRIVATE_KEY;
 
@@ -6,13 +7,7 @@ const privatePEM = process.env.PRIVATE_KEY;
 const ACCESS_TOKEN_EXPIRATION = "15m";
 const REFRESH_TOKEN_EXPIRATION = "30d";
 
-// Type of payload, para maangas
-type payload = {
-  email: String;
-  role: String;
-};
-
-const createToken = async (user: payload) => {
+export const createAccessToken = async (user: AuthPayload) => {
   if (!privatePEM) throw new Error("Private key required");
 
   // Importing the private key (PKCS8 format) for RS256 signing
@@ -24,12 +19,19 @@ const createToken = async (user: payload) => {
     .setExpirationTime(ACCESS_TOKEN_EXPIRATION)
     .sign(privateKey);
 
+  return accessToken;
+};
+
+export const createRefreshToken = async (user: AuthPayload) => {
+  if (!privatePEM) throw new Error("Private key required");
+
+  // Importing the private key (PKCS8 format) for RS256 signing
+  const privateKey = await jose.importPKCS8(privatePEM, "RS256");
+
   const refreshToken = await new jose.SignJWT(user)
     .setProtectedHeader({ alg: "RS256" })
     .setExpirationTime(REFRESH_TOKEN_EXPIRATION)
     .sign(privateKey);
 
-  return { accessToken, refreshToken };
+  return refreshToken;
 };
-
-export default createToken;
