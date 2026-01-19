@@ -8,9 +8,8 @@ const REFRESH_TOKEN_EXPIRATION = "30d";
 
 // Type of payload, para maangas
 type payload = {
-  // email: String;
-  // role: String;
-  userId: String;
+  email: String;
+  role: String;
 };
 
 const createToken = async (user: payload) => {
