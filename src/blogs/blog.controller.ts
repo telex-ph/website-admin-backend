@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import Blog from "./Blog.ts";
 import { createBlogSchema, type CreateBlogDto } from "./dto/create-blog.dto.ts";
+import { toSlug } from "./utils/to-slug.util.ts";
 
 export const addBlog = async (req: Request, res: Response) => {
   const parsed = createBlogSchema.safeParse(req.body);
@@ -17,7 +18,7 @@ export const addBlog = async (req: Request, res: Response) => {
   try {
     const neBlog = await Blog.create({
       title: blog.title,
-      slug: blog.slug,
+      slug: toSlug(blog.title),
       content: blog.content,
       tags: blog.tags,
     });
