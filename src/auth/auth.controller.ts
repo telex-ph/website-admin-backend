@@ -108,3 +108,23 @@ export const refresh = async (req: Request, res: Response) => {
     }
   }
 };
+
+export const logout = async (req: Request, res: Response) => {
+  res.cookie("accessToken", "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+    expires: new Date(0),
+  });
+
+  res.cookie("refreshToken", "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+    expires: new Date(0),
+  });
+
+  res.json({ message: "Logged out successfully", isLoggedOut: true });
+};
