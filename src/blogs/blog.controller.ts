@@ -20,7 +20,9 @@ export const addBlog = async (req: Request, res: Response) => {
       title: blog.title,
       slug: toSlug(blog.title),
       content: blog.content,
-      tags: blog.tags,
+      category: blog.category,
+      author: blog.author,
+      status: blog.status,
     });
 
     res.status(200).json(neBlog);

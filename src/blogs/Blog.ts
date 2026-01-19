@@ -5,14 +5,14 @@ const blogSchema = new Schema(
   {
     title: String,
     slug: String,
-    published: Boolean,
+    status: String,
     author: String,
     content: String,
-    tags: [String],
+    category: String,
   },
   {
     timestamps: true,
-  }
+  },
 );
 const Blog = model("Blog", blogSchema);
 export default Blog;
