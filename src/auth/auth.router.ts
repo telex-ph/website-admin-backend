@@ -1,10 +1,10 @@
 import { Router } from "express";
-import bcrypt from "bcrypt";
 
-import { login } from "./auth.controller.ts";
+import { authenticate, refresh } from "./auth.controller.ts";
 
 const router = Router();
 
-router.post("/login", login);
+router.post("/authenticate", authenticate);
+router.post("/refresh", refresh);
 
 export default router;
