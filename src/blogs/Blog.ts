@@ -6,7 +6,7 @@ const blogSchema = new Schema(
     title: String,
     slug: String,
     status: String,
-    author: String,
+    author: Schema.Types.ObjectId,
     content: String,
     category: String,
   },

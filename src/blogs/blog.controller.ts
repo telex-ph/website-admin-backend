@@ -7,6 +7,7 @@ import {
   type GetParamDto,
 } from "../common/dto/get-param.dto.ts";
 import { updateBlogSchema, type UpdateBlogDto } from "./dto/update-blog.dto.ts";
+import { Types } from "mongoose";
 
 // Adding blog
 export const addBlog = async (req: Request, res: Response) => {
@@ -30,7 +31,8 @@ export const addBlog = async (req: Request, res: Response) => {
       slug: toSlug(blog.title),
       content: blog.content,
       category: blog.category,
-      author: blog.author,
+      // author: blog.author,
+      author: Types.ObjectId.createFromHexString(blog.author),
       status: blog.status,
     });
 
