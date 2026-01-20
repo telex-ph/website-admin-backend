@@ -6,7 +6,7 @@ export const createBlogSchema = z.object({
   // TODO: make the category enum instead and apply to other DTO
   status: z.enum(["published", "draft", "scheduled"]),
   // TODO: change the enum category, please notify hernani po.
-  category: z.enum(["categor1", "categor2", "categor3"]).optional(),
+  category: z.enum(["categor1", "categor2", "categor3"]),
   author: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid ObjectId"),
 });
 
