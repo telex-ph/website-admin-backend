@@ -9,6 +9,7 @@ const blogSchema = new Schema(
     author: Schema.Types.ObjectId,
     content: String,
     category: String,
+    cover: String,
   },
   {
     timestamps: true,

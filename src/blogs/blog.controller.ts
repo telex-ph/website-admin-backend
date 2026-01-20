@@ -8,6 +8,7 @@ import {
 } from "../common/dto/get-param.dto.ts";
 import { updateBlogSchema, type UpdateBlogDto } from "./dto/update-blog.dto.ts";
 import { Types } from "mongoose";
+import uploadFile from "./utils/upload-file.util.ts";
 
 // Adding blog
 export const addBlog = async (req: Request, res: Response) => {
@@ -25,6 +26,11 @@ export const addBlog = async (req: Request, res: Response) => {
   const blog: CreateBlogDto = parsed.data;
 
   try {
+    // File uploading
+    const file = req.file;
+    if (!file?.buffer) throw new Error("File buffer is empty");
+    const url = await uploadFile(file);
+
     // Create blog object
     const newBlog = await Blog.create({
       title: blog.title,
@@ -34,6 +40,7 @@ export const addBlog = async (req: Request, res: Response) => {
       // author: blog.author,
       author: Types.ObjectId.createFromHexString(blog.author),
       status: blog.status,
+      cover: url,
     });
 
     res.status(200).json(newBlog);
