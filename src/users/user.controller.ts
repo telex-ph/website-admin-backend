@@ -9,7 +9,7 @@ export const addUser = async (req: Request, res: Response) => {
   if (!parsed.success) {
     return res.status(400).json({
       error: "Validation failed",
-      message: "Zod Error. Invalid request data",
+      message: "Request body do not match the expected schema",
     });
   }
 
