@@ -1,14 +1,14 @@
 import type { Request, Response } from "express";
 import Blog from "./Blog.ts";
 import { createBlogSchema, type CreateBlogDto } from "./dto/create-blog.dto.ts";
-import { toSlug } from "./utils/to-slug.util.ts";
+import { toSlug } from "../common/utils/to-slug.util.ts";
 import {
   getParamSchema,
   type GetParamDto,
 } from "../common/dto/get-param.dto.ts";
 import { updateBlogSchema, type UpdateBlogDto } from "./dto/update-blog.dto.ts";
 import { Types } from "mongoose";
-import uploadFile from "./utils/upload-file.util.ts";
+import uploadFile from "../common/utils/upload-file.util.ts";
 
 // Adding blog
 export const addBlog = async (req: Request, res: Response) => {

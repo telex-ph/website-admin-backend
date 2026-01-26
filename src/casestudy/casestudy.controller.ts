@@ -1,14 +1,20 @@
 import type { Request, Response } from "express";
 import CaseStudy from "./CaseStudy.ts";
-import { createCaseStudySchema, type CreateCaseStudyDto } from "./dto/create-casestudy.dto.ts";
-import { toSlug } from "./utils/to-slug.util.ts";
+import {
+  createCaseStudySchema,
+  type CreateCaseStudyDto,
+} from "./dto/create-casestudy.dto.ts";
+import { toSlug } from "../common/utils/to-slug.util.ts";
 import {
   getParamSchema,
   type GetParamDto,
 } from "../common/dto/get-param.dto.ts";
-import { updateCaseStudySchema, type UpdateCaseStudyDto } from "./dto/update-casestudy.dto.ts";
+import {
+  updateCaseStudySchema,
+  type UpdateCaseStudyDto,
+} from "./dto/update-casestudy.dto.ts";
 import { Types } from "mongoose";
-import uploadFile from "./utils/upload-file.util.ts";
+import uploadFile from "../common/utils/upload-file.util.ts";
 
 // Adding case study
 export const addCaseStudy = async (req: Request, res: Response) => {
@@ -99,7 +105,9 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
       filter.author = author;
     }
 
-    const caseStudies = await CaseStudy.find(filter).populate("author", "name email").exec();
+    const caseStudies = await CaseStudy.find(filter)
+      .populate("author", "name email")
+      .exec();
     res.status(200).json(caseStudies);
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -127,12 +135,14 @@ export const getCaseStudy = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
-    const caseStudy = await CaseStudy.findById(param.id).populate("author", "name email").exec();
-    
+    const caseStudy = await CaseStudy.findById(param.id)
+      .populate("author", "name email")
+      .exec();
+
     if (!caseStudy) {
       return res.status(404).json({ error: "Case study not found" });
     }
-    
+
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -157,7 +167,9 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
       });
     }
 
-    const caseStudy = await CaseStudy.findOne({ slug }).populate("author", "name email").exec();
+    const caseStudy = await CaseStudy.findOne({ slug })
+      .populate("author", "name email")
+      .exec();
 
     if (!caseStudy) {
       return res.status(404).json({ error: "Case study not found" });
@@ -202,7 +214,7 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
 
   try {
     // If title is being updated, regenerate slug
-    const updateData = body.title 
+    const updateData = body.title
       ? { ...body, slug: toSlug(body.title) }
       : body;
 
@@ -250,7 +262,9 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Case study not found" });
     }
 
-    res.status(200).json({ message: "Case study deleted successfully", data: caseStudy });
+    res
+      .status(200)
+      .json({ message: "Case study deleted successfully", data: caseStudy });
   } catch (error) {
     if (error instanceof Error) {
       console.error("Deleting case study error:", error.message);
