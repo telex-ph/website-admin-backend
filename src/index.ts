@@ -4,11 +4,12 @@ import cookieParser from "cookie-parser";
 import blogRouter from "./blogs/blog.router.ts";
 import authRouter from "./auth/auth.router.ts";
 import userRouter from "./users/user.router.ts";
-
+import caseStudyRouter from "./casestudy/casestudy.router.ts";
+ 
 const app = express();
 const port = process.env.PORT;
 
-// MongoDB Connection Configuraton
+// MongoDB Connection Configuration
 const mongoUri: string = process.env.MONGO_URI || "";
 mongoose.connect(mongoUri);
 
@@ -21,7 +22,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
 app.use("/blogs", blogRouter);
+app.use("/casestudies", caseStudyRouter);
+
+app.get("/test", (req, res) => {
+  res.json({ message: "Server is working!" });
+});
 
 app.listen(port, () => {
-  console.log(`Server is running on [http://localhost:${port}]`);
+  console.log(`Server is running on http://localhost:${port}`);
 });
