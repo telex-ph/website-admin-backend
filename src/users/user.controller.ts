@@ -43,6 +43,50 @@ export const addUser = async (req: Request, res: Response) => {
   }
 };
 
+// Fetching all users
+export const getAllUsers = async (req: Request, res: Response) => {
+  try {
+    // {} means all records or without a filter
+    const users = await User.find({}).exec();
+    res.status(200).json(users);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Fetching users error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Users error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+export const getUser = async (req: Request, res: Response) => {
+  // Check the params using Zod/validation
+  const parsed = getParamSchema.safeParse(req.params);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+
+  try {
+    const blog = await User.findById(param.id).exec();
+    res.status(200).json(blog);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Fetching user error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("User error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
 export const updateUser = async (req: Request, res: Response) => {
   // Validate the params
   const parsedParams = getParamSchema.safeParse(req.params);
@@ -75,6 +119,34 @@ export const updateUser = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Updating user error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("User error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+export const deleteUser = async (req: Request, res: Response) => {
+  // Check the params using Zod/validation
+  const parsed = getParamSchema.safeParse(req.params);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+
+  try {
+    // Search for the id and delete
+    const blog = await User.findByIdAndDelete(param.id).exec();
+    res.status(200).json(blog);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Deleting user error:", error.message);
       res.status(400).json({ error: error.message });
     } else {
       console.error("User error:", error);
