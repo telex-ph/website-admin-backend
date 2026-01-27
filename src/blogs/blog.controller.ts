@@ -93,7 +93,7 @@ export const getBlog = async (req: Request, res: Response) => {
       console.error("Fetching blog error:", error.message);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Blogs error:", error);
+      console.error("Blog error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -135,7 +135,7 @@ export const updateBlog = async (req: Request, res: Response) => {
       console.error("Updating blog error:", error.message);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Blogs error:", error);
+      console.error("Blog error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -163,7 +163,7 @@ export const deleteBlog = async (req: Request, res: Response) => {
       console.error("Deleting blog error:", error.message);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Blogs error:", error);
+      console.error("Blog error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
