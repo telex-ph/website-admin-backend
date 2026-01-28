@@ -15,6 +15,7 @@ import {
 } from "./dto/update-casestudy.dto.ts";
 import { Types } from "mongoose";
 import uploadFile from "../common/utils/upload-file.util.ts";
+import { trackView } from "../common/services/analytics.service.ts";
 
 // Adding case study
 export const addCaseStudy = async (req: Request, res: Response) => {
@@ -69,7 +70,8 @@ export const addCaseStudy = async (req: Request, res: Response) => {
 export const getAllCaseStudies = async (req: Request, res: Response) => {
   try {
     // Extract query parameters
-    const { search, client, industry, status, author } = req.query;
+    const { search, client, industry, status, author, sortBy, order } =
+      req.query;
 
     // Build dynamic filter object
     const filter: any = {};
@@ -105,9 +107,19 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
       filter.author = author;
     }
 
+    // Build sort object
+    const sort: any = {};
+    if (sortBy) {
+      sort[sortBy as string] = order === "desc" ? -1 : 1;
+    } else {
+      sort.createdAt = -1; // Default sort by newest
+    }
+
     const caseStudies = await CaseStudy.find(filter)
+      .sort(sort)
       .populate("author", "name email")
       .exec();
+
     res.status(200).json(caseStudies);
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -120,7 +132,7 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching single case study
+// Fetching single case study by ID with view tracking
 export const getCaseStudy = async (req: Request, res: Response) => {
   // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
@@ -143,6 +155,13 @@ export const getCaseStudy = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Case study not found" });
     }
 
+    // Track view in background (don't wait for it)
+    trackView({
+      resourceType: "casestudy",
+      resourceId: param.id,
+      req,
+    }).catch((err) => console.error("View tracking error:", err));
+
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -155,7 +174,7 @@ export const getCaseStudy = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching single case study by slug
+// Fetching single case study by slug with view tracking
 export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
@@ -174,6 +193,13 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
     if (!caseStudy) {
       return res.status(404).json({ error: "Case study not found" });
     }
+
+    // Track view in background (don't wait for it)
+    trackView({
+      resourceType: "casestudy",
+      resourceId: caseStudy._id.toString(),
+      req,
+    }).catch((err) => console.error("View tracking error:", err));
 
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
