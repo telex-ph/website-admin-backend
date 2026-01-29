@@ -28,15 +28,18 @@ export const authenticate = async (req: Request, res: Response) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new Error("Invalid credentials");
 
-    // Token creation
+    // 🔴 FIXED: Token creation - NOW INCLUDES USER ID!
     const accessToken = await createAccessToken({
+      id: user._id.toString(),  // ← ADDED THIS LINE!
       email: user.email,
       role: user.role,
     });
     const refreshToken = await createRefreshToken({
+      id: user._id.toString(),  // ← ADDED THIS LINE!
       email: user.email,
       role: user.role,
     });
+    
     // Store a token cookie
     // I used httpOnly to prevent XSS
     res.cookie("accessToken", accessToken, {
@@ -82,8 +85,10 @@ export const refresh = async (req: Request, res: Response) => {
     const publicKey = await jose.importSPKI(publicPEM, "RS256");
     const verified = await jose.jwtVerify(refreshToken, publicKey);
     const payload: AuthPayload = verified.payload as AuthPayload;
-    // Create new access token using refresh token
+    
+    // 🔴 FIXED: Create new access token - NOW INCLUDES USER ID FROM REFRESH TOKEN!
     const accessToken = await createAccessToken({
+      id: payload.id,  // ← CHANGED: Now passes ID from refresh token
       email: payload.email,
       role: payload.role,
     });
