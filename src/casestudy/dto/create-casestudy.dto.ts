@@ -1,15 +1,41 @@
 import z from "zod";
 
+// Schema for content sections (subtitle/text pairs)
+const contentSectionSchema = z.object({
+  subtitle: z.string().min(3, "Subtitle must be at least 3 characters"),
+  text: z.string().min(10, "Text must be at least 10 characters"),
+});
+
+// Schema for challenge/solution items
+const challengeSolutionSchema = z.object({
+  title: z.string().min(3, "Title must be at least 3 characters"),
+  text: z.string().min(10, "Text must be at least 10 characters"),
+});
+
 export const createCaseStudySchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters"),
-  content: z.string().min(10, "Content must be at least 10 characters"),
-  status: z.enum(["published", "draft", "scheduled"]),
-  client: z.string().min(2, "Client name is required"),
-  industry: z.string().min(2, "Industry is required"),
-  challenge: z.string().min(10, "Challenge description is required"),
-  solution: z.string().min(10, "Solution description is required"),
-  results: z.string().min(10, "Results description is required"),
-  author: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid ObjectId"),
+  status: z.enum(["active", "completed", "draft", "scheduled"]),
+  tags: z
+    .array(
+      z.enum(["technology", "logistics", "analytics", "infrastructure"])
+    )
+    .optional()
+    .default([]),
+  
+  // Content sections - exactly 5 sections required
+  sections: z
+    .array(contentSectionSchema)
+    .length(5, "Exactly 5 content sections are required"),
+  
+  // Challenge - at least 1 required
+  challenge: z
+    .array(challengeSolutionSchema)
+    .min(1, "At least one challenge is required"),
+  
+  // Solution - at least 1 required
+  solution: z
+    .array(challengeSolutionSchema)
+    .min(1, "At least one solution is required"),
 });
 
 export type CreateCaseStudyDto = z.infer<typeof createCaseStudySchema>;
