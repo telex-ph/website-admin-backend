@@ -431,6 +431,100 @@ export const getAllAnalytics = async (req: Request, res: Response) => {
 };
 
 /**
+ * NEW: Get aggregated view statistics for ALL Case Studies (Daily, Weekly, Monthly, Yearly)
+ */
+export const getCaseStudyStats = async (req: Request, res: Response) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+
+    const oneWeekAgo = new Date(today);
+    oneWeekAgo.setDate(today.getDate() - 7);
+
+    const oneMonthAgo = new Date(today);
+    oneMonthAgo.setDate(today.getDate() - 30);
+
+    const oneYearAgo = new Date(today);
+    oneYearAgo.setDate(today.getDate() - 365);
+
+    const stats = await Analytics.aggregate([
+      // 1. Filter only Case Studies
+      { $match: { resourceType: "casestudy" } },
+      
+      // 2. Separate two streams of data: Total Counts vs Temporal Data
+      {
+        $facet: {
+          // Calculate All-time Total directly from viewCount field
+          "overall": [
+            {
+              $group: {
+                _id: null,
+                totalAllTime: { $sum: "$viewCount" },
+                totalUnique: { $sum: "$uniqueViewCount" }
+              }
+            }
+          ],
+          // Calculate Time-based stats from dailyViews array
+          "periods": [
+            { $unwind: "$dailyViews" }, // Deconstruct the array
+            {
+              $group: {
+                _id: null,
+                // Daily: Matches strictly today's date
+                daily: {
+                  $sum: {
+                    $cond: [{ $gte: ["$dailyViews.date", today] }, "$dailyViews.count", 0]
+                  }
+                },
+                // Weekly: Last 7 days
+                weekly: {
+                  $sum: {
+                    $cond: [{ $gte: ["$dailyViews.date", oneWeekAgo] }, "$dailyViews.count", 0]
+                  }
+                },
+                // Monthly: Last 30 days
+                monthly: {
+                  $sum: {
+                    $cond: [{ $gte: ["$dailyViews.date", oneMonthAgo] }, "$dailyViews.count", 0]
+                  }
+                },
+                // Yearly: Last 365 days
+                yearly: {
+                  $sum: {
+                    $cond: [{ $gte: ["$dailyViews.date", oneYearAgo] }, "$dailyViews.count", 0]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]);
+
+    // Format the result cleanly
+    const result = {
+      totalAllTime: stats[0].overall[0]?.totalAllTime || 0,
+      totalUnique: stats[0].overall[0]?.totalUnique || 0,
+      daily: stats[0].periods[0]?.daily || 0,
+      weekly: stats[0].periods[0]?.weekly || 0,
+      monthly: stats[0].periods[0]?.monthly || 0,
+      yearly: stats[0].periods[0]?.yearly || 0,
+    };
+
+    res.status(200).json(result);
+
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Case Study Stats error:", error.message);
+      res.status(500).json({ error: error.message });
+    } else {
+      console.error("Case Study Stats error:", error);
+      res.status(500).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+/**
  * Get comparison between blogs and case studies
  */
 export const getComparison = async (req: Request, res: Response) => {

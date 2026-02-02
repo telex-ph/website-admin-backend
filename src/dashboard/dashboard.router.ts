@@ -5,6 +5,7 @@ import {
   getTopResources,
   getAllAnalytics,
   getComparison,
+  getCaseStudyStats, // <--- IMPORT THIS NEW FUNCTION
 } from "./dashboard.controller.ts";
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
 
@@ -15,6 +16,10 @@ router.use(verifyJwt);
 
 // Get overall dashboard statistics
 router.get("/stats", getDashboardStats);
+
+// NEW: Get aggregated stats specifically for Case Studies
+// Ilagay ito BAGO ang /stats/:resourceType o iba pang dynamic routes para hindi matakpan
+router.get("/stats/casestudies-summary", getCaseStudyStats); 
 
 // Get comparison between blogs and case studies
 router.get("/comparison", getComparison);
