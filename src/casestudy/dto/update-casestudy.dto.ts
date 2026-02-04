@@ -15,12 +15,26 @@ const challengeSolutionSchema = z.object({
 export const updateCaseStudySchema = z
   .object({
     title: z.string().min(3).optional(),
+    subtitle: z.string().optional(),
+    author: z.string().min(2, "Author name must be at least 2 characters").optional(),
     status: z.enum(["active", "completed", "draft", "scheduled"]).optional(),
+    // UPDATED: Multiple tags support - can be empty array or have multiple values
     tags: z
       .array(
         z.enum(["technology", "logistics", "analytics", "infrastructure"])
       )
-      .optional(),
+      .optional()
+      .refine(
+        (tags) => !tags || (tags.length >= 0 && tags.length <= 4),
+        { message: "You can select 0 to 4 categories" }
+      ),
+    
+    // Date fields
+    startDate: z.date().optional(),
+    endDate: z.date().optional(),
+    isUnfinished: z.boolean().optional(),
+    scheduleDate: z.date().optional(),
+    scheduleTime: z.string().optional(),
     
     // Content sections - if provided, must be exactly 5
     sections: z.array(contentSectionSchema).length(5).optional(),

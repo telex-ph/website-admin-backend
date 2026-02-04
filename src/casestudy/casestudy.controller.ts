@@ -7,6 +7,7 @@ import {
 } from "../common/dto/get-param.dto.ts";
 import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
+import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
 
 // Helper function to extract user ID from request (tries all possible locations)
 const getUserId = (req: Request): string | null => {
@@ -82,13 +83,27 @@ const parseFormData = (body: any) => {
   }
   console.log("✅ Solutions:", solution.length);
 
+  // Parse dates
+  const startDate = body.startDate ? new Date(body.startDate) : undefined;
+  const endDate = body.endDate ? new Date(body.endDate) : undefined;
+  const isUnfinished = body.isUnfinished === "true" || body.isUnfinished === true;
+  const scheduleDate = body.scheduleDate ? new Date(body.scheduleDate) : undefined;
+  const scheduleTime = body.scheduleTime || undefined;
+
   return {
     title: body.title,
+    subtitle: body.subtitle || undefined,
+    author: body.author,
     status: body.status,
     tags,
     sections,
     challenge,
     solution,
+    startDate,
+    endDate,
+    isUnfinished,
+    scheduleDate,
+    scheduleTime,
   };
 };
 
@@ -97,44 +112,57 @@ export const addCaseStudy = async (req: Request, res: Response) => {
   console.log("\n🚀 ===== CREATE CASE STUDY REQUEST =====");
   
   try {
-    // Get authenticated user ID
-    const userId = getUserId(req);
-    
-    if (!userId) {
-      console.error("⚠️ No user ID found - returning 401");
-      return res.status(401).json({ 
-        error: "User not authenticated",
-        debug: {
-          message: "User ID not found in request",
-          userObject: (req as any).user,
-          hint: "Check your JWT middleware. The user object should contain id, _id, userId, or sub property"
-        }
-      });
-    }
-
     // Parse form data
     const parsedData = parseFormData(req.body);
     console.log("📋 Parsed data:", {
       title: parsedData.title,
+      subtitle: parsedData.subtitle,
+      author: parsedData.author,
       status: parsedData.status,
       sectionsCount: parsedData.sections.length,
       challengeCount: parsedData.challenge.length,
-      solutionCount: parsedData.solution.length
+      solutionCount: parsedData.solution.length,
+      startDate: parsedData.startDate,
+      endDate: parsedData.endDate,
+      isUnfinished: parsedData.isUnfinished,
+      scheduleDate: parsedData.scheduleDate,
+      scheduleTime: parsedData.scheduleTime,
     });
 
     // Validate required fields
     if (!parsedData.title) {
       return res.status(400).json({ error: "Title is required" });
     }
+    if (!parsedData.author) {
+      return res.status(400).json({ error: "Author is required" });
+    }
     if (!parsedData.status) {
       return res.status(400).json({ error: "Status is required" });
     }
-    if (parsedData.sections.length !== 5) {
-      return res.status(400).json({ 
-        error: "Exactly 5 content sections are required",
-        received: parsedData.sections.length,
-        hint: "Make sure you have subtitle0-text0 through subtitle4-text4"
-      });
+    // VALIDATION LOGIC FOR SECTIONS
+    if (parsedData.status === 'draft') {
+      // If Draft, require at least 1 section
+      if (parsedData.sections.length < 1) {
+        return res.status(400).json({ error: "Drafts require at least 1 content section" });
+      }
+    } else {
+      // If Active/Completed/Scheduled, require EXACTLY 5
+      // VALIDATION LOGIC FOR SECTIONS
+    if (parsedData.status === 'draft') {
+      // If Draft, require at least 1 section
+      if (parsedData.sections.length < 1) {
+        return res.status(400).json({ error: "Drafts require at least 1 content section" });
+      }
+    } else {
+      // If Active/Completed/Scheduled, require EXACTLY 5
+      if (parsedData.sections.length !== 5) {
+        return res.status(400).json({ 
+          error: "Status '" + parsedData.status + "' requires exactly 5 content sections",
+          received: parsedData.sections.length,
+          hint: "Fill out all 5 topics and content fields"
+        });
+      }
+    }
     }
     if (parsedData.challenge.length === 0) {
       return res.status(400).json({ error: "At least one challenge is required" });
@@ -153,24 +181,49 @@ export const addCaseStudy = async (req: Request, res: Response) => {
     const url = await uploadFile(file);
     console.log("✅ Cover uploaded:", url);
 
-    // Create case study object
+    // Create case study object with all fields
     console.log("💾 Creating case study in database...");
-    const newCaseStudy = await CaseStudy.create({
+    const caseStudyData: any = {
       title: parsedData.title,
       slug: toSlug(parsedData.title),
       cover: url,
       status: parsedData.status,
       tags: parsedData.tags,
-      author: userId,
+      author: parsedData.author,
       sections: parsedData.sections,
       challenge: parsedData.challenge,
       solution: parsedData.solution,
+      isUnfinished: parsedData.isUnfinished,
+    };
+
+    // Add optional fields only if they exist
+    if (parsedData.subtitle) caseStudyData.subtitle = parsedData.subtitle;
+    if (parsedData.startDate) caseStudyData.startDate = parsedData.startDate;
+    if (parsedData.endDate) caseStudyData.endDate = parsedData.endDate;
+    if (parsedData.scheduleDate) caseStudyData.scheduleDate = parsedData.scheduleDate;
+    if (parsedData.scheduleTime) caseStudyData.scheduleTime = parsedData.scheduleTime;
+
+    const newCaseStudy = await CaseStudy.create(caseStudyData);
+
+    console.log("✅ Case study created successfully!");
+
+    // 🔴 LOG ACTIVITY - Case Study Created
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "CREATED",
+      module: "CASESTUDY",
+      admin: adminEmail,
+      details: {
+        caseStudyId: newCaseStudy._id.toString(),
+        title: newCaseStudy.title,
+        slug: newCaseStudy.slug,
+        status: newCaseStudy.status,
+        tags: newCaseStudy.tags,
+        author: newCaseStudy.author,
+      },
+      req,
     });
 
-    // Populate author information
-    await newCaseStudy.populate("author", "name email");
-    
-    console.log("✅ Case study created successfully!");
     console.log("🎉 ===== END CREATE CASE STUDY =====\n");
 
     res.status(201).json(newCaseStudy);
@@ -196,6 +249,7 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: "i" } },
+        { subtitle: { $regex: search, $options: "i" } },
         { "sections.subtitle": { $regex: search, $options: "i" } },
         { "sections.text": { $regex: search, $options: "i" } },
         { "challenge.title": { $regex: search, $options: "i" } },
@@ -221,7 +275,6 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
 
     const caseStudies = await CaseStudy.find(filter)
       .sort(sort)
-      .populate("author", "name email")
       .exec();
 
     res.status(200).json(caseStudies);
@@ -248,7 +301,6 @@ export const getCaseStudy = async (req: Request, res: Response) => {
 
   try {
     const caseStudy = await CaseStudy.findById(param.id)
-      .populate("author", "name email")
       .exec();
 
     if (!caseStudy) {
@@ -283,7 +335,6 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
     }
 
     const caseStudy = await CaseStudy.findOne({ slug })
-      .populate("author", "name email")
       .exec();
 
     if (!caseStudy) {
@@ -306,8 +357,42 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
   }
 };
 
+
+// Fetching single case study by ID for editing (WITHOUT view tracking)
+export const getCaseStudyForEdit = async (req: Request, res: Response) => {
+  const parsed = getParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+
+  try {
+    const caseStudy = await CaseStudy.findById(param.id)
+      .exec();
+
+    if (!caseStudy) {
+      return res.status(404).json({ error: "Case study not found" });
+    }
+
+    // No analytics tracking - this is for editing only
+    res.status(200).json(caseStudy);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
 // Updating case study
 export const updateCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n🔄 ===== UPDATE CASE STUDY REQUEST =====");
+  
   const parsedParams = getParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({
@@ -319,30 +404,38 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
   const param: GetParamDto = parsedParams.data;
 
   try {
-    const userId = getUserId(req);
-    if (!userId) {
-      return res.status(401).json({ 
-        error: "User not authenticated",
-        debug: "User ID not found in request"
-      });
-    }
-
     const existingCaseStudy = await CaseStudy.findById(param.id);
     if (!existingCaseStudy) {
       return res.status(404).json({ error: "Case study not found" });
     }
 
-    if (existingCaseStudy.author.toString() !== userId) {
-      return res.status(403).json({ error: "You can only update your own case studies" });
-    }
+    // Store old data for activity log
+    const oldData = {
+      title: existingCaseStudy.title,
+      slug: existingCaseStudy.slug,
+      status: existingCaseStudy.status,
+      tags: existingCaseStudy.tags,
+      author: existingCaseStudy.author,
+    };
 
     const parsedData = parseFormData(req.body);
     const updateData: any = {};
+
+    // Handle cover image update if new file is provided
+    const file = req.file;
+    if (file?.buffer) {
+      console.log("📤 Uploading new cover image...");
+      const url = await uploadFile(file);
+      console.log("✅ New cover uploaded:", url);
+      updateData.cover = url;
+    }
 
     if (parsedData.title) {
       updateData.title = parsedData.title;
       updateData.slug = toSlug(parsedData.title);
     }
+    if (parsedData.subtitle !== undefined) updateData.subtitle = parsedData.subtitle;
+    if (parsedData.author) updateData.author = parsedData.author;
     if (parsedData.status) updateData.status = parsedData.status;
     if (parsedData.tags.length > 0) updateData.tags = parsedData.tags;
     if (parsedData.sections.length > 0) {
@@ -352,23 +445,82 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
           received: parsedData.sections.length 
         });
       }
+      
+      if (parsedData.sections.length > 0) {
+      // Check the NEW status being requested (parsedData.status) 
+      // OR fallback to existing status if status isn't changing
+      const targetStatus = parsedData.status || existingCaseStudy.status;
+
+      if (targetStatus === 'draft') {
+         // Draft rule: At least 1
+         if (parsedData.sections.length < 1) {
+            return res.status(400).json({ error: "Drafts require at least 1 content section" });
+         }
+      } else {
+         // Active rule: Exactly 5
+         if (parsedData.sections.length !== 5) {
+            return res.status(400).json({ 
+              error: "Status '" + targetStatus + "' requires exactly 5 content sections",
+              received: parsedData.sections.length 
+            });
+         }
+      }
+      updateData.sections = parsedData.sections;
+    }
+
       updateData.sections = parsedData.sections;
     }
     if (parsedData.challenge.length > 0) updateData.challenge = parsedData.challenge;
     if (parsedData.solution.length > 0) updateData.solution = parsedData.solution;
+    
+    // Update date fields
+    if (parsedData.startDate !== undefined) updateData.startDate = parsedData.startDate;
+    if (parsedData.endDate !== undefined) updateData.endDate = parsedData.endDate;
+    if (parsedData.isUnfinished !== undefined) updateData.isUnfinished = parsedData.isUnfinished;
+    if (parsedData.scheduleDate !== undefined) updateData.scheduleDate = parsedData.scheduleDate;
+    if (parsedData.scheduleTime !== undefined) updateData.scheduleTime = parsedData.scheduleTime;
 
+    console.log("💾 Updating case study in database...");
     const caseStudy = await CaseStudy.findByIdAndUpdate(param.id, updateData, {
       new: true,
       runValidators: true,
     })
-      .populate("author", "name email")
       .exec();
+
+    console.log("✅ Case study updated successfully!");
+
+    // 🔴 LOG ACTIVITY - Case Study Updated
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "UPDATED",
+      module: "CASESTUDY",
+      admin: adminEmail,
+      details: {
+        caseStudyId: caseStudy!._id.toString(),
+        oldData,
+        newData: {
+          title: caseStudy!.title,
+          slug: caseStudy!.slug,
+          status: caseStudy!.status,
+          tags: caseStudy!.tags,
+          author: caseStudy!.author,
+        },
+        fieldsUpdated: Object.keys(updateData),
+      },
+      req,
+    });
+
+    console.log("🎉 ===== END UPDATE CASE STUDY =====\n");
 
     res.status(200).json(caseStudy);
   } catch (error) {
+    console.error("❌ ERROR:", error);
     if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -387,24 +539,33 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
-    const userId = getUserId(req);
-    if (!userId) {
-      return res.status(401).json({ 
-        error: "User not authenticated",
-        debug: "User ID not found in request"
-      });
-    }
-
     const existingCaseStudy = await CaseStudy.findById(param.id);
     if (!existingCaseStudy) {
       return res.status(404).json({ error: "Case study not found" });
     }
 
-    if (existingCaseStudy.author.toString() !== userId) {
-      return res.status(403).json({ error: "You can only delete your own case studies" });
-    }
+    // Store data before deletion for activity log
+    const deletedData = {
+      caseStudyId: existingCaseStudy._id.toString(),
+      title: existingCaseStudy.title,
+      slug: existingCaseStudy.slug,
+      status: existingCaseStudy.status,
+      tags: existingCaseStudy.tags,
+      author: existingCaseStudy.author,
+    };
 
     const caseStudy = await CaseStudy.findByIdAndDelete(param.id).exec();
+
+    // 🔴 LOG ACTIVITY - Case Study Deleted
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "DELETED",
+      module: "CASESTUDY",
+      admin: adminEmail,
+      details: deletedData,
+      req,
+    });
+
     res.status(200).json({ message: "Case study deleted successfully", data: caseStudy });
   } catch (error) {
     if (error instanceof Error) {

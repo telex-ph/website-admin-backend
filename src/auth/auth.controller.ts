@@ -7,6 +7,7 @@ import {
   createRefreshToken,
 } from "./helpers/create-token.helper.ts";
 import type { AuthPayload } from "./types/auth-payload.type.ts";
+import { logActivity } from "../common/services/activity-log.service.ts";
 
 // This value should be in milliseconds
 const ACCESS_TOKEN_EXPIRATION_MS = 15 * 60 * 1000; // 15 minutes
@@ -28,14 +29,14 @@ export const authenticate = async (req: Request, res: Response) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new Error("Invalid credentials");
 
-    // 🔴 FIXED: Token creation - NOW INCLUDES USER ID!
+    // Token creation - NOW INCLUDES USER ID!
     const accessToken = await createAccessToken({
-      id: user._id.toString(),  // ← ADDED THIS LINE!
+      id: user._id.toString(),
       email: user.email,
       role: user.role,
     });
     const refreshToken = await createRefreshToken({
-      id: user._id.toString(),  // ← ADDED THIS LINE!
+      id: user._id.toString(),
       email: user.email,
       role: user.role,
     });
@@ -58,7 +59,20 @@ export const authenticate = async (req: Request, res: Response) => {
       maxAge: REFRESH_TOKEN_EXPIRATION_MS,
     });
 
-    res.status(200).json({ message: "Sucessfully authenticated" });
+    // 🔴 LOG ACTIVITY - User Login
+    await logActivity({
+      action: "LOGIN",
+      module: "AUTH",
+      admin: email,
+      details: {
+        userId: user._id.toString(),
+        role: user.role,
+        loginTime: new Date(),
+      },
+      req,
+    });
+
+    res.status(200).json({ message: "Successfully authenticated" });
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Authentication error:", error.message);
@@ -86,9 +100,9 @@ export const refresh = async (req: Request, res: Response) => {
     const verified = await jose.jwtVerify(refreshToken, publicKey);
     const payload: AuthPayload = verified.payload as AuthPayload;
     
-    // 🔴 FIXED: Create new access token - NOW INCLUDES USER ID FROM REFRESH TOKEN!
+    // Create new access token - NOW INCLUDES USER ID FROM REFRESH TOKEN!
     const accessToken = await createAccessToken({
-      id: payload.id,  // ← CHANGED: Now passes ID from refresh token
+      id: payload.id,
       email: payload.email,
       role: payload.role,
     });
@@ -115,6 +129,10 @@ export const refresh = async (req: Request, res: Response) => {
 };
 
 export const logout = async (req: Request, res: Response) => {
+  // Get user email before clearing cookies
+  const user = (req as any).user;
+  const email = user?.email || "unknown@admin.com";
+
   res.cookie("accessToken", "", {
     httpOnly: true,
     secure: true,
@@ -129,6 +147,17 @@ export const logout = async (req: Request, res: Response) => {
     sameSite: "none",
     path: "/",
     expires: new Date(0),
+  });
+
+  // 🔴 LOG ACTIVITY - User Logout
+  await logActivity({
+    action: "LOGOUT",
+    module: "AUTH",
+    admin: email,
+    details: {
+      logoutTime: new Date(),
+    },
+    req,
   });
 
   res.json({ message: "Logged out successfully", isLoggedOut: true });
