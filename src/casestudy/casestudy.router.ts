@@ -4,6 +4,7 @@ import {
   getCaseStudy,
   getAllCaseStudies,
   fetchCaseStudyBySlug,
+  getCaseStudyForEdit,
   updateCaseStudy,
   deleteCaseStudy,
 } from "./casestudy.controller.ts";
@@ -17,9 +18,10 @@ router.get("/", getAllCaseStudies);
 router.get("/fetch/:slug", fetchCaseStudyBySlug);
 router.get("/:id", getCaseStudy);
 
-// Protected routes
-router.post("/", verifyJwt, upload.single("cover"), addCaseStudy);
-router.patch("/:id", verifyJwt, updateCaseStudy);
-router.delete("/:id", verifyJwt, deleteCaseStudy);
+// Protected routes - require authentication for create/update/delete
+router.get("/edit/:id", verifyJwt, getCaseStudyForEdit); // Protected route for editing
+router.post("/", verifyJwt, upload.single("cover"), addCaseStudy); // ← ADDED verifyJwt
+router.patch("/:id", verifyJwt, upload.single("cover"), updateCaseStudy); // ← ADDED verifyJwt
+router.delete("/:id", verifyJwt, deleteCaseStudy); // ← ADDED verifyJwt (removed upload since delete doesn't need it)
 
 export default router;

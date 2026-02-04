@@ -10,6 +10,7 @@ import { updateBlogSchema, type UpdateBlogDto } from "./dto/update-blog.dto.ts";
 import { Types } from "mongoose";
 import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
+import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
 
 // Adding blog
 export const addBlog = async (req: Request, res: Response) => {
@@ -42,6 +43,23 @@ export const addBlog = async (req: Request, res: Response) => {
       author: Types.ObjectId.createFromHexString(blog.author),
       status: blog.status,
       cover: url,
+    });
+
+    // 🔴 LOG ACTIVITY - Blog Created
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "CREATED",
+      module: "BLOGS",
+      admin: adminEmail,
+      details: {
+        blogId: newBlog._id.toString(),
+        title: newBlog.title,
+        slug: newBlog.slug,
+        status: newBlog.status,
+        category: newBlog.category,
+        author: newBlog.author.toString(),
+      },
+      req,
     });
 
     res.status(201).json(newBlog);
@@ -220,6 +238,20 @@ export const updateBlog = async (req: Request, res: Response) => {
   const body: UpdateBlogDto = parsedBody.data;
 
   try {
+    // Get existing blog for activity log
+    const existingBlog = await Blog.findById(param.id).exec();
+    if (!existingBlog) {
+      return res.status(404).json({ error: "Blog not found" });
+    }
+
+    // Store old data for activity log
+    const oldData = {
+      title: existingBlog.title,
+      slug: existingBlog.slug,
+      status: existingBlog.status,
+      category: existingBlog.category,
+    };
+
     // If title is being updated, regenerate slug
     const updateData = body.title
       ? { ...body, slug: toSlug(body.title) }
@@ -234,6 +266,26 @@ export const updateBlog = async (req: Request, res: Response) => {
     if (!blog) {
       return res.status(404).json({ error: "Blog not found" });
     }
+
+    // 🔴 LOG ACTIVITY - Blog Updated
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "UPDATED",
+      module: "BLOGS",
+      admin: adminEmail,
+      details: {
+        blogId: blog._id.toString(),
+        oldData,
+        newData: {
+          title: blog.title,
+          slug: blog.slug,
+          status: blog.status,
+          category: blog.category,
+        },
+        fieldsUpdated: Object.keys(body),
+      },
+      req,
+    });
 
     res.status(200).json(blog);
   } catch (error) {
@@ -262,12 +314,38 @@ export const deleteBlog = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
+    // Get existing blog for activity log before deletion
+    const existingBlog = await Blog.findById(param.id).exec();
+    if (!existingBlog) {
+      return res.status(404).json({ error: "Blog not found" });
+    }
+
+    // Store data before deletion for activity log
+    const deletedData = {
+      blogId: existingBlog._id.toString(),
+      title: existingBlog.title,
+      slug: existingBlog.slug,
+      status: existingBlog.status,
+      category: existingBlog.category,
+      author: existingBlog.author.toString(),
+    };
+
     // Search for the id and delete
     const blog = await Blog.findByIdAndDelete(param.id).exec();
 
     if (!blog) {
       return res.status(404).json({ error: "Blog not found" });
     }
+
+    // 🔴 LOG ACTIVITY - Blog Deleted
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "DELETED",
+      module: "BLOGS",
+      admin: adminEmail,
+      details: deletedData,
+      req,
+    });
 
     res
       .status(200)

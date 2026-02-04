@@ -22,6 +22,7 @@ const challengeSolutionSchema = new Schema(
 const caseStudySchema = new Schema(
   {
     title: { type: String, required: true },
+    subtitle: { type: String, required: false },
     slug: { type: String, required: true, unique: true },
     cover: { type: String, required: true },
     status: {
@@ -29,28 +30,48 @@ const caseStudySchema = new Schema(
       enum: ["active", "completed", "draft", "scheduled"],
       required: true,
     },
+    // UPDATED: Multiple tags support - can be empty array or have multiple values
     tags: {
       type: [String],
       enum: ["technology", "logistics", "analytics", "infrastructure"],
       default: [],
+      validate: {
+        validator: function (v: string[]) {
+          // Allow empty array or array with valid tags
+          return Array.isArray(v) && v.every(tag => 
+            ["technology", "logistics", "analytics", "infrastructure"].includes(tag)
+          );
+        },
+        message: "Tags must be one or more of: technology, logistics, analytics, infrastructure",
+      },
     },
     
-    // Author reference to User model
+    // Author as a simple string field - user types the author name
     author: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
+      type: String,
       required: true,
     },
     
+    // Date fields
+    startDate: { type: Date, required: false },
+    endDate: { type: Date, required: false },
+    isUnfinished: { type: Boolean, default: false },
+    scheduleDate: { type: Date, required: false },
+    scheduleTime: { type: String, required: false },
+    
     // Content sections - exactly 5 sections with subtitle and text
+    // Content sections - Check status context inside controller, 
+    // but here we allow flexibility for Drafts
     sections: {
       type: [contentSectionSchema],
       required: true,
       validate: {
         validator: function (v: any[]) {
-          return v && v.length === 5;
+          // Validation logic handled strictly in Controller depending on status.
+          // Here we just ensure it's not empty.
+          return v && v.length > 0;
         },
-        message: "Exactly 5 content sections are required",
+        message: "At least one content section is required",
       },
     },
     
