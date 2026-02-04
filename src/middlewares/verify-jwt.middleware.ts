@@ -1,8 +1,13 @@
 import * as jose from "jose";
 import type { Request, Response, NextFunction } from "express";
 
+// Ine-extend ang Request para payagan si 'user' property sa TypeScript
+interface AuthenticatedRequest extends Request {
+  user?: any;
+}
+
 export const verifyJwt = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction,
 ) => {
@@ -13,21 +18,27 @@ export const verifyJwt = async (
 
   try {
     if (accessToken) {
-      // Import the public key to check the validity of the token
       const publicKey = await jose.importSPKI(publicPEM, "RS256");
-      // Validate the accessToken
       const { payload } = await jose.jwtVerify(accessToken, publicKey);
 
       req.user = payload;
       return next();
     } else {
-      return res.status(401).json({ code: "ACCESS_TOKEN_EXPIRED" });
+      // Return 401 Unauthorized para ma-handle ng frontend
+      return res.status(401).json({
+        success: false,
+        message: "No access token provided. Please login.",
+        redirectTo: "/login"
+      });
     }
   } catch (error) {
-    if (error instanceof jose.errors.JWTExpired) {
-      return res.status(401).json({ code: "ACCESS_TOKEN_EXPIRED" });
-    }
     console.error("JWT verification error:", error);
-    return res.status(403).json({ message: "Invalid access token" });
+    
+    // Return 401 kapag expired o invalid ang token
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired token. Please login again.",
+      redirectTo: "/login"
+    });
   }
 };

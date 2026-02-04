@@ -4,7 +4,7 @@ import type { AuthPayload } from "../types/auth-payload.type.ts";
 const privatePEM = process.env.PRIVATE_KEY;
 
 // Manual token expiration
-const ACCESS_TOKEN_EXPIRATION = "15m";
+const ACCESS_TOKEN_EXPIRATION = "8h";
 const REFRESH_TOKEN_EXPIRATION = "30d";
 
 export const createAccessToken = async (user: AuthPayload) => {
