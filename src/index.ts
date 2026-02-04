@@ -7,6 +7,8 @@ import authRouter from "./auth/auth.router.ts";
 import userRouter from "./users/user.router.ts";
 import caseStudyRouter from "./casestudy/casestudy.router.ts";
 import dashboardRouter from "./dashboard/dashboard.router.ts";
+// 1. I-import ang middleware
+import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
 
 const app = express();
 const port = 3000;
@@ -34,19 +36,23 @@ app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
 // API Endpoints - BOTH with and without /api prefix
-// Routes WITHOUT /api (for your existing Postman requests)
-app.use("/auth", authRouter);
-app.use("/users", userRouter);
-app.use("/blogs", blogRouter);
-app.use("/casestudies", caseStudyRouter);
-app.use("/dashboard", dashboardRouter);
 
-// Routes WITH /api (for frontend analytics)
+// Public Routes (Hindi kailangan ng verifyJwt para makapag-login)
+app.use("/auth", authRouter);
 app.use("/api/auth", authRouter);
-app.use("/api/users", userRouter);
-app.use("/api/blogs", blogRouter);
-app.use("/api/casestudies", caseStudyRouter);
-app.use("/api/dashboard", dashboardRouter);
+
+// --- PROTECTED ROUTES ---
+// 2. Dito natin idinagdag ang verifyJwt bago ang bawat router
+app.use("/users", verifyJwt, userRouter);
+app.use("/blogs", verifyJwt, blogRouter);
+app.use("/casestudies", verifyJwt, caseStudyRouter);
+app.use("/dashboard", verifyJwt, dashboardRouter);
+
+// Routes WITH /api prefix
+app.use("/api/users", verifyJwt, userRouter);
+app.use("/api/blogs", verifyJwt, blogRouter);
+app.use("/api/casestudies", verifyJwt, caseStudyRouter);
+app.use("/api/dashboard", verifyJwt, dashboardRouter);
 
 // Health check endpoint
 app.get("/", (req, res) => {
@@ -72,11 +78,11 @@ app.get("/", (req, res) => {
   });
 });
 
-app.listen(port, () => {
+app.listen(port, () => { //
   console.log(`🚀 Backend is running on http://localhost:${port}`);
   console.log(`📊 Dashboard analytics available at:`);
-  console.log(`   - http://localhost:${port}/dashboard (without /api)`);
-  console.log(`   - http://localhost:${port}/api/dashboard (with /api)`);
+  console.log(`   - http://localhost:${port}/dashboard (Protected)`);
+  console.log(`   - http://localhost:${port}/api/dashboard (Protected)`);
   console.log(`🌐 Frontend URL: http://localhost:3001`);
   console.log(`✅ CORS enabled for frontend`);
   console.log(`✅ Both /api and non-/api routes are available`);

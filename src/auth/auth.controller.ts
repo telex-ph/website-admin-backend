@@ -10,7 +10,7 @@ import type { AuthPayload } from "./types/auth-payload.type.ts";
 import { logActivity } from "../common/services/activity-log.service.ts";
 
 // This value should be in milliseconds
-const ACCESS_TOKEN_EXPIRATION_MS = 15 * 60 * 1000; // 15 minutes
+const ACCESS_TOKEN_EXPIRATION_MS = 8 * 60 * 60 * 1000; // Ginawang 8 hours
 const REFRESH_TOKEN_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export const authenticate = async (req: Request, res: Response) => {
@@ -116,7 +116,7 @@ export const refresh = async (req: Request, res: Response) => {
       maxAge: ACCESS_TOKEN_EXPIRATION_MS,
     });
 
-    res.json({ access_token: accessToken, expires_in: 300 });
+    res.json({ access_token: accessToken, expires_in: 28800 });
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Refresh token error:", error.message);
