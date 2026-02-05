@@ -10,8 +10,11 @@ import type { AuthPayload } from "./types/auth-payload.type.ts";
 import { logActivity } from "../common/services/activity-log.service.ts";
 
 // This value should be in milliseconds
-const ACCESS_TOKEN_EXPIRATION_MS = 8 * 60 * 60 * 1000; // Ginawang 8 hours
+const ACCESS_TOKEN_EXPIRATION_MS = 8 * 60 * 60 * 1000; // 8 hours
 const REFRESH_TOKEN_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// 🔧 Determine if we're in production or development
+const isProduction = process.env.NODE_ENV === 'production';
 
 export const authenticate = async (req: Request, res: Response) => {
   const { email, password } = req.body;
@@ -41,22 +44,30 @@ export const authenticate = async (req: Request, res: Response) => {
       role: user.role,
     });
     
-    // Store a token cookie
-    // I used httpOnly to prevent XSS
-    res.cookie("accessToken", accessToken, {
+    // 🔥 FIXED: Different cookie settings for dev vs production
+    const cookieOptions = {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      secure: isProduction, // Only secure in production (HTTPS)
+      sameSite: isProduction ? 'none' as const : 'lax' as const, // 'lax' works with localhost
       path: "/",
+    };
+
+    // Store access token cookie
+    res.cookie("accessToken", accessToken, {
+      ...cookieOptions,
       maxAge: ACCESS_TOKEN_EXPIRATION_MS,
     });
 
+    // Store refresh token cookie
     res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      path: "/",
+      ...cookieOptions,
       maxAge: REFRESH_TOKEN_EXPIRATION_MS,
+    });
+
+    console.log('✅ Cookies set successfully:', {
+      environment: isProduction ? 'production' : 'development',
+      secure: cookieOptions.secure,
+      sameSite: cookieOptions.sameSite
     });
 
     // 🔴 LOG ACTIVITY - User Login
@@ -100,18 +111,18 @@ export const refresh = async (req: Request, res: Response) => {
     const verified = await jose.jwtVerify(refreshToken, publicKey);
     const payload: AuthPayload = verified.payload as AuthPayload;
     
-    // Create new access token - NOW INCLUDES USER ID FROM REFRESH TOKEN!
+    // Create new access token
     const accessToken = await createAccessToken({
       id: payload.id,
       email: payload.email,
       role: payload.role,
     });
 
-    // Store in cookie
+    // Store in cookie with same settings as login
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
       path: "/",
       maxAge: ACCESS_TOKEN_EXPIRATION_MS,
     });
@@ -133,21 +144,17 @@ export const logout = async (req: Request, res: Response) => {
   const user = (req as any).user;
   const email = user?.email || "unknown@admin.com";
 
-  res.cookie("accessToken", "", {
+  // Clear cookies with same settings
+  const cookieOptions = {
     httpOnly: true,
-    secure: true,
-    sameSite: "none",
+    secure: isProduction,
+    sameSite: isProduction ? 'none' as const : 'lax' as const,
     path: "/",
     expires: new Date(0),
-  });
+  };
 
-  res.cookie("refreshToken", "", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "none",
-    path: "/",
-    expires: new Date(0),
-  });
+  res.cookie("accessToken", "", cookieOptions);
+  res.cookie("refreshToken", "", cookieOptions);
 
   // 🔴 LOG ACTIVITY - User Logout
   await logActivity({

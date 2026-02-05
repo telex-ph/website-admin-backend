@@ -6,6 +6,12 @@ interface AuthenticatedRequest extends Request {
   user?: any;
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+/**
+ * 🔒 STRICT AUTH MIDDLEWARE
+ * Use this for protected routes that REQUIRE authentication
+ */
 export const verifyJwt = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -16,15 +22,32 @@ export const verifyJwt = async (
 
   const accessToken = req.cookies.accessToken;
 
+  console.log('🔐 Auth check:', {
+    hasToken: !!accessToken,
+    cookieNames: Object.keys(req.cookies),
+    allCookies: req.cookies
+  });
+
   try {
     if (accessToken) {
       const publicKey = await jose.importSPKI(publicPEM, "RS256");
       const { payload } = await jose.jwtVerify(accessToken, publicKey);
 
       req.user = payload;
+      console.log("✅ JWT verified for user:", payload);
       return next();
     } else {
-      // Return 401 Unauthorized para ma-handle ng frontend
+      console.log("❌ No access token in cookies");
+      
+      // Clear any existing invalid cookies
+      res.clearCookie('accessToken', {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
+        path: '/'
+      });
+      
+      // Return 401 Unauthorized
       return res.status(401).json({
         success: false,
         message: "No access token provided. Please login.",
@@ -32,13 +55,64 @@ export const verifyJwt = async (
       });
     }
   } catch (error) {
-    console.error("JWT verification error:", error);
+    console.error("❌ JWT verification error:", error);
     
-    // Return 401 kapag expired o invalid ang token
+    // Clear the invalid/expired cookie
+    res.clearCookie('accessToken', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/'
+    });
+    
     return res.status(401).json({
       success: false,
       message: "Invalid or expired token. Please login again.",
       redirectTo: "/login"
     });
+  }
+};
+
+
+/**
+ * 🔓 OPTIONAL AUTH MIDDLEWARE
+ * Use this for routes that work for BOTH authenticated and public users
+ */
+export const optionalAuth = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  const publicPEM = process.env.PUBLIC_KEY;
+  if (!publicPEM) {
+    console.warn("⚠️ Public key is not configured");
+    return next();
+  }
+
+  const accessToken = req.cookies.accessToken;
+
+  if (!accessToken) {
+    console.log("📖 Public access - no token provided");
+    return next();
+  }
+
+  try {
+    const publicKey = await jose.importSPKI(publicPEM, "RS256");
+    const { payload } = await jose.jwtVerify(accessToken, publicKey);
+
+    req.user = payload;
+    console.log("🔓 Authenticated access - user:", payload);
+    return next();
+  } catch (error) {
+    console.warn("⚠️ Invalid token, clearing and continuing as public:", error);
+    
+    res.clearCookie('accessToken', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/'
+    });
+    
+    return next();
   }
 };

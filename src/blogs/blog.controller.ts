@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import Blog from "./Blog.ts";
+import Blog, { type IBlog, type IContentSection } from "./Blog.ts";
 import { createBlogSchema, type CreateBlogDto } from "./dto/create-blog.dto.ts";
 import { toSlug } from "../common/utils/to-slug.util.ts";
 import {
@@ -13,37 +13,62 @@ import { trackView } from "../common/services/analytics.service.ts";
 import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
 
 // Adding blog
+// Adding blog
 export const addBlog = async (req: Request, res: Response) => {
-  // Check the body using Zod/validation
-  const parsed = createBlogSchema.safeParse(req.body);
-
-  // Validate
-  if (!parsed.success) {
-    return res.status(400).json({
-      error: "Validation failed",
-      message: "Request body does not match the expected schema",
-      details: parsed.error.issues,
-    });
-  }
-
-  const blog: CreateBlogDto = parsed.data;
-
   try {
+    // 1. I-clone ang req.body para ma-modify natin
+    let bodyData = { ...req.body };
+
+    // 2. FIX: I-parse ang mainContent kung ito ay string (dahil galing sa FormData)
+    if (typeof bodyData.mainContent === 'string') {
+      try {
+        bodyData.mainContent = JSON.parse(bodyData.mainContent);
+      } catch (error) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: "Invalid JSON format for mainContent",
+        });
+      }
+    }
+
+    // 3. Check the body using Zod/validation (GAMITIN ANG bodyData, HINDI req.body)
+    const parsed = createBlogSchema.safeParse(bodyData);
+
+    // Validate
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Validation failed",
+        message: "Request body does not match the expected schema",
+        details: parsed.error.issues,
+      });
+    }
+
+    const blog: CreateBlogDto = parsed.data;
+
     // File uploading
     const file = req.file;
     if (!file?.buffer) throw new Error("File buffer is empty");
     const url = await uploadFile(file);
 
     // Create blog object
-    const newBlog = await Blog.create({
+    const blogData: any = {
       title: blog.title,
       slug: toSlug(blog.title),
-      content: blog.content,
-      category: blog.category,
-      author: Types.ObjectId.createFromHexString(blog.author),
+      author: blog.author, // Direct string assignment na ito (hindi na Types.ObjectId)
+      mainCategory: blog.mainCategory,
+      subcategory: blog.subcategory,
+      shortDescription: blog.shortDescription,
+      mainContent: blog.mainContent,
+      picture: url,
       status: blog.status,
-      cover: url,
-    });
+    };
+
+    // Only add scheduledDate if it exists
+    if (blog.scheduledDate) {
+      blogData.scheduledDate = new Date(blog.scheduledDate);
+    }
+
+    const newBlog = await Blog.create(blogData);
 
     // 🔴 LOG ACTIVITY - Blog Created
     const adminEmail = getUserEmailFromRequest(req);
@@ -56,8 +81,10 @@ export const addBlog = async (req: Request, res: Response) => {
         title: newBlog.title,
         slug: newBlog.slug,
         status: newBlog.status,
-        category: newBlog.category,
-        author: newBlog.author.toString(),
+        mainCategory: newBlog.mainCategory,
+        subcategory: newBlog.subcategory,
+        author: newBlog.author, // String na ito
+        scheduledDate: newBlog.scheduledDate?.toISOString(),
       },
       req,
     });
@@ -78,22 +105,29 @@ export const addBlog = async (req: Request, res: Response) => {
 export const getAllBlogs = async (req: Request, res: Response) => {
   try {
     // Extract query parameters for filtering
-    const { search, category, status, author, sortBy, order } = req.query;
+    const { search, mainCategory, subcategory, status, author, sortBy, order } = req.query;
 
     // Build dynamic filter object
     const filter: any = {};
 
-    // Search in title and content
+    // Search in title, short description, and main content
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: "i" } },
-        { content: { $regex: search, $options: "i" } },
+        { shortDescription: { $regex: search, $options: "i" } },
+        { "mainContent.title": { $regex: search, $options: "i" } },
+        { "mainContent.content": { $regex: search, $options: "i" } },
       ];
     }
 
-    // Filter by category
-    if (category) {
-      filter.category = category;
+    // Filter by main category
+    if (mainCategory) {
+      filter.mainCategory = mainCategory;
+    }
+
+    // Filter by subcategory
+    if (subcategory) {
+      filter.subcategory = subcategory;
     }
 
     // Filter by status
@@ -249,13 +283,21 @@ export const updateBlog = async (req: Request, res: Response) => {
       title: existingBlog.title,
       slug: existingBlog.slug,
       status: existingBlog.status,
-      category: existingBlog.category,
+      mainCategory: existingBlog.mainCategory,
+      subcategory: existingBlog.subcategory,
+      shortDescription: existingBlog.shortDescription,
+      scheduledDate: existingBlog.scheduledDate?.toISOString(),
     };
 
     // If title is being updated, regenerate slug
-    const updateData = body.title
+    const updateData: any = body.title
       ? { ...body, slug: toSlug(body.title) }
-      : body;
+      : { ...body };
+
+    // Convert scheduledDate string to Date if present
+    if (updateData.scheduledDate) {
+      updateData.scheduledDate = new Date(updateData.scheduledDate);
+    }
 
     // Search for the id and update
     const blog = await Blog.findByIdAndUpdate(param.id, updateData, {
@@ -280,7 +322,10 @@ export const updateBlog = async (req: Request, res: Response) => {
           title: blog.title,
           slug: blog.slug,
           status: blog.status,
-          category: blog.category,
+          mainCategory: blog.mainCategory,
+          subcategory: blog.subcategory,
+          shortDescription: blog.shortDescription,
+          scheduledDate: blog.scheduledDate?.toISOString(),
         },
         fieldsUpdated: Object.keys(body),
       },
@@ -326,8 +371,10 @@ export const deleteBlog = async (req: Request, res: Response) => {
       title: existingBlog.title,
       slug: existingBlog.slug,
       status: existingBlog.status,
-      category: existingBlog.category,
+      mainCategory: existingBlog.mainCategory,
+      subcategory: existingBlog.subcategory,
       author: existingBlog.author.toString(),
+      scheduledDate: existingBlog.scheduledDate?.toISOString(),
     };
 
     // Search for the id and delete

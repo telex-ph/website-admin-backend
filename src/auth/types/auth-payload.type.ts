@@ -1,5 +1,5 @@
 export type AuthPayload = {
-  id: string;        // ← ADDED!
+  id: string;
   email: string;
-  role: string;
+  role: number; // Changed from string to number (1: Main Admin, 2: Admin)
 };

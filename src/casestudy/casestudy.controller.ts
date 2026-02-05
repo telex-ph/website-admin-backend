@@ -139,15 +139,8 @@ export const addCaseStudy = async (req: Request, res: Response) => {
     if (!parsedData.status) {
       return res.status(400).json({ error: "Status is required" });
     }
+
     // VALIDATION LOGIC FOR SECTIONS
-    if (parsedData.status === 'draft') {
-      // If Draft, require at least 1 section
-      if (parsedData.sections.length < 1) {
-        return res.status(400).json({ error: "Drafts require at least 1 content section" });
-      }
-    } else {
-      // If Active/Completed/Scheduled, require EXACTLY 5
-      // VALIDATION LOGIC FOR SECTIONS
     if (parsedData.status === 'draft') {
       // If Draft, require at least 1 section
       if (parsedData.sections.length < 1) {
@@ -163,7 +156,7 @@ export const addCaseStudy = async (req: Request, res: Response) => {
         });
       }
     }
-    }
+
     if (parsedData.challenge.length === 0) {
       return res.status(400).json({ error: "At least one challenge is required" });
     }
@@ -240,10 +233,14 @@ export const addCaseStudy = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching all case studies with advanced filtering
+// 🔍 IMPROVED: Fetching all case studies with BETTER ERROR LOGGING
 export const getAllCaseStudies = async (req: Request, res: Response) => {
+  console.log("\n📚 ===== GET ALL CASE STUDIES =====");
+  
   try {
     const { search, status, tags, sortBy, order, author } = req.query;
+    console.log("📋 Query params:", { search, status, tags, sortBy, order, author });
+    
     const filter: any = {};
 
     if (search) {
@@ -266,6 +263,8 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
     }
     if (author) filter.author = author;
 
+    console.log("🔍 Filter:", JSON.stringify(filter, null, 2));
+
     const sort: any = {};
     if (sortBy) {
       sort[sortBy as string] = order === "desc" ? -1 : 1;
@@ -273,24 +272,37 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
       sort.createdAt = -1;
     }
 
+    console.log("📊 Sort:", JSON.stringify(sort, null, 2));
+    console.log("🔄 Fetching from database...");
+
     const caseStudies = await CaseStudy.find(filter)
       .sort(sort)
       .exec();
 
+    console.log(`✅ Found ${caseStudies.length} case studies`);
+    console.log("🎉 ===== END GET ALL CASE STUDIES =====\n");
+
     res.status(200).json(caseStudies);
   } catch (error: unknown) {
+    console.error("❌ GET ALL ERROR:", error);
     if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
 };
 
-// Fetching single case study by ID with view tracking
+// 🔍 IMPROVED: Fetching single case study by ID with BETTER ERROR LOGGING
 export const getCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n🔍 ===== GET CASE STUDY BY ID =====");
+  
   const parsed = getParamSchema.safeParse(req.params);
   if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
     return res.status(400).json({
       error: "Validation failed",
       message: "Request parameters do not match the expected schema",
@@ -298,14 +310,17 @@ export const getCaseStudy = async (req: Request, res: Response) => {
   }
 
   const param: GetParamDto = parsed.data;
+  console.log("📋 Looking for case study with ID:", param.id);
 
   try {
-    const caseStudy = await CaseStudy.findById(param.id)
-      .exec();
+    const caseStudy = await CaseStudy.findById(param.id).exec();
 
     if (!caseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
       return res.status(404).json({ error: "Case study not found" });
     }
+
+    console.log("✅ Found case study:", caseStudy.title);
 
     trackView({
       resourceType: "casestudy",
@@ -313,33 +328,46 @@ export const getCaseStudy = async (req: Request, res: Response) => {
       req,
     }).catch((err) => console.error("View tracking error:", err));
 
+    console.log("🎉 ===== END GET CASE STUDY =====\n");
+
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
+    console.error("❌ GET BY ID ERROR:", error);
     if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
 };
 
-// Fetching single case study by slug with view tracking
+// 🔍 IMPROVED: Fetching single case study by slug with BETTER ERROR LOGGING
 export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
+  console.log("\n🔍 ===== GET CASE STUDY BY SLUG =====");
+  
   try {
     const { slug } = req.params;
+    console.log("📋 Looking for slug:", slug);
+    
     if (!slug) {
+      console.error("❌ No slug provided");
       return res.status(400).json({
         error: "Validation failed",
         message: "Slug parameter is required",
       });
     }
 
-    const caseStudy = await CaseStudy.findOne({ slug })
-      .exec();
+    const caseStudy = await CaseStudy.findOne({ slug }).exec();
 
     if (!caseStudy) {
+      console.error("❌ Case study not found with slug:", slug);
       return res.status(404).json({ error: "Case study not found" });
     }
+
+    console.log("✅ Found case study:", caseStudy.title);
 
     trackView({
       resourceType: "casestudy",
@@ -347,11 +375,17 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
       req,
     }).catch((err) => console.error("View tracking error:", err));
 
+    console.log("🎉 ===== END GET CASE STUDY BY SLUG =====\n");
+
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
+    console.error("❌ GET BY SLUG ERROR:", error);
     if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -360,8 +394,11 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
 
 // Fetching single case study by ID for editing (WITHOUT view tracking)
 export const getCaseStudyForEdit = async (req: Request, res: Response) => {
+  console.log("\n✏️ ===== GET CASE STUDY FOR EDIT =====");
+  
   const parsed = getParamSchema.safeParse(req.params);
   if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
     return res.status(400).json({
       error: "Validation failed",
       message: "Request parameters do not match the expected schema",
@@ -369,21 +406,29 @@ export const getCaseStudyForEdit = async (req: Request, res: Response) => {
   }
 
   const param: GetParamDto = parsed.data;
+  console.log("📋 Looking for case study to edit, ID:", param.id);
 
   try {
-    const caseStudy = await CaseStudy.findById(param.id)
-      .exec();
+    const caseStudy = await CaseStudy.findById(param.id).exec();
 
     if (!caseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
       return res.status(404).json({ error: "Case study not found" });
     }
+
+    console.log("✅ Found case study for editing:", caseStudy.title);
+    console.log("🎉 ===== END GET CASE STUDY FOR EDIT =====\n");
 
     // No analytics tracking - this is for editing only
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
+    console.error("❌ GET FOR EDIT ERROR:", error);
     if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -438,15 +483,8 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
     if (parsedData.author) updateData.author = parsedData.author;
     if (parsedData.status) updateData.status = parsedData.status;
     if (parsedData.tags.length > 0) updateData.tags = parsedData.tags;
+    
     if (parsedData.sections.length > 0) {
-      if (parsedData.sections.length !== 5) {
-        return res.status(400).json({ 
-          error: "Exactly 5 content sections are required",
-          received: parsedData.sections.length 
-        });
-      }
-      
-      if (parsedData.sections.length > 0) {
       // Check the NEW status being requested (parsedData.status) 
       // OR fallback to existing status if status isn't changing
       const targetStatus = parsedData.status || existingCaseStudy.status;
@@ -468,8 +506,6 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
       updateData.sections = parsedData.sections;
     }
 
-      updateData.sections = parsedData.sections;
-    }
     if (parsedData.challenge.length > 0) updateData.challenge = parsedData.challenge;
     if (parsedData.solution.length > 0) updateData.solution = parsedData.solution;
     
@@ -484,8 +520,7 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
     const caseStudy = await CaseStudy.findByIdAndUpdate(param.id, updateData, {
       new: true,
       runValidators: true,
-    })
-      .exec();
+    }).exec();
 
     console.log("✅ Case study updated successfully!");
 
@@ -528,8 +563,11 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
 
 // Deleting case study
 export const deleteCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n🗑️ ===== DELETE CASE STUDY =====");
+  
   const parsed = getParamSchema.safeParse(req.params);
   if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
     return res.status(400).json({
       error: "Validation failed",
       message: "Request parameters do not match the expected schema",
@@ -537,12 +575,16 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
   }
 
   const param: GetParamDto = parsed.data;
+  console.log("📋 Deleting case study with ID:", param.id);
 
   try {
     const existingCaseStudy = await CaseStudy.findById(param.id);
     if (!existingCaseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
       return res.status(404).json({ error: "Case study not found" });
     }
+
+    console.log("✅ Found case study to delete:", existingCaseStudy.title);
 
     // Store data before deletion for activity log
     const deletedData = {
@@ -556,6 +598,8 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
 
     const caseStudy = await CaseStudy.findByIdAndDelete(param.id).exec();
 
+    console.log("✅ Case study deleted successfully!");
+
     // 🔴 LOG ACTIVITY - Case Study Deleted
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
@@ -566,11 +610,17 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
       req,
     });
 
+    console.log("🎉 ===== END DELETE CASE STUDY =====\n");
+
     res.status(200).json({ message: "Case study deleted successfully", data: caseStudy });
   } catch (error) {
+    console.error("❌ DELETE ERROR:", error);
     if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }

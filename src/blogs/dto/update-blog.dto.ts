@@ -1,15 +1,115 @@
 import z from "zod";
 
+// Main Category values
+const mainCategoryValues = [
+  "Main Service Categories",
+  "Industry-Specific Insights",
+  "Business Growth & Strategy",
+  "Company Culture & Updates",
+] as const;
+
+// Subcategory values
+const mainServiceSubcategoryValues = [
+  "Customer Experience (CX)",
+  "Back Office Solutions",
+  "Virtual Assistance",
+  "Sales & Lead Generation",
+] as const;
+
+const industrySpecificSubcategoryValues = [
+  "E-commerce Support",
+  "Real Estate Outsourcing",
+  "Healthcare BPO",
+  "Tech & SaaS Scaling",
+] as const;
+
+const businessGrowthSubcategoryValues = [
+  "Scale Smarter",
+  "Outsourcing 101",
+  "Cost Optimization",
+] as const;
+
+const companyCultureSubcategoryValues = [
+  "TelexPH Life",
+  "News & Press Releases",
+] as const;
+
+// Zod schemas
+export const MainCategoryEnum = z.enum(mainCategoryValues);
+
+export const MainServiceSubcategoryEnum = z.enum(mainServiceSubcategoryValues);
+
+export const IndustrySpecificSubcategoryEnum = z.enum(industrySpecificSubcategoryValues);
+
+export const BusinessGrowthSubcategoryEnum = z.enum(businessGrowthSubcategoryValues);
+
+export const CompanyCultureSubcategoryEnum = z.enum(companyCultureSubcategoryValues);
+
+// Content section schema
+const contentSectionSchema = z.object({
+  title: z.string().min(1, "Content section title is required"),
+  content: z.string().min(1, "Content section content is required"),
+});
+
+// Combined subcategory schema
+const subcategorySchema = z.union([
+  MainServiceSubcategoryEnum,
+  IndustrySpecificSubcategoryEnum,
+  BusinessGrowthSubcategoryEnum,
+  CompanyCultureSubcategoryEnum,
+]);
+
 export const updateBlogSchema = z
   .object({
-    title: z.string().min(3).optional(),
-    content: z.string().min(10).optional(),
-    // TODO: change the enum category, please notify hernani po.
-    category: z.enum(["categor1", "categor2", "categor3"]).optional(),
-    status: z.enum(["publish", "draft", "schedule"]).optional(),
+    title: z.string().min(3, "Title must be at least 3 characters").optional(),
+    mainCategory: MainCategoryEnum.optional(),
+    subcategory: subcategorySchema.optional(),
+    shortDescription: z.string().min(10, "Short description must be at least 10 characters").optional(),
+    mainContent: z
+      .array(contentSectionSchema)
+      .min(1, "At least one content section is required")
+      .optional(),
+    status: z.enum(["published", "draft", "scheduled"]).optional(),
+    scheduledDate: z.string().datetime().optional().nullable(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "At least one field must be provided",
-  });
+  })
+  .refine(
+    (data) => {
+      // If both mainCategory and subcategory are being updated, validate they match
+      if (data.mainCategory && data.subcategory) {
+        const subcategoryMap: { [key: string]: readonly string[] } = {
+          "Main Service Categories": mainServiceSubcategoryValues,
+          "Industry-Specific Insights": industrySpecificSubcategoryValues,
+          "Business Growth & Strategy": businessGrowthSubcategoryValues,
+          "Company Culture & Updates": companyCultureSubcategoryValues,
+        };
 
-export type UpdateBlogDto = z.infer<typeof updateBlogSchema>;
+        const validSubcategories = subcategoryMap[data.mainCategory];
+        if (!validSubcategories) return false;
+
+        return validSubcategories.includes(data.subcategory as any);
+      }
+      return true;
+    },
+    {
+      message: "Subcategory does not match the selected main category",
+      path: ["subcategory"],
+    }
+  )
+  .refine(
+    (data) => {
+      // Scheduled date is required if status is being changed to scheduled
+      if (data.status === "scheduled") {
+        return data.scheduledDate !== undefined && data.scheduledDate !== null;
+      }
+      return true;
+    },
+    {
+      message: "Scheduled date is required when status is 'scheduled'",
+      path: ["scheduledDate"],
+    }
+  );
+
+export type UpdateBlogDto = z.infer<typeof updateBlogSchema>; 
