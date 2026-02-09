@@ -17,9 +17,9 @@ router.get("/", getAllBlogs);
 router.get("/fetch/:slug", getBlogBySlug); // Get by slug (place before /:id)
 router.get("/:id", getBlog); // Get by ID
 
-// Protected routes
-router.post("/", verifyJwt, upload.single("picture"), addBlog); // Changed from "cover" to "picture"
-router.patch("/:id", verifyJwt, updateBlog);
+// Protected routes - with image upload support
+router.post("/", verifyJwt, upload.single("picture"), addBlog);
+router.patch("/:id", verifyJwt, upload.single("picture"), updateBlog);
 router.delete("/:id", verifyJwt, deleteBlog);
 
 export default router;

@@ -62,6 +62,7 @@ const subcategorySchema = z.union([
 export const updateBlogSchema = z
   .object({
     title: z.string().min(3, "Title must be at least 3 characters").optional(),
+    author: z.string().min(1, "Author name is required").optional(),
     mainCategory: MainCategoryEnum.optional(),
     subcategory: subcategorySchema.optional(),
     shortDescription: z.string().min(10, "Short description must be at least 10 characters").optional(),

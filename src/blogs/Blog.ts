@@ -45,7 +45,7 @@ export interface IBlog {
   _id: mongoose.Types.ObjectId;
   title: string;
   slug: string;
-  author: mongoose.Types.ObjectId;
+  author: string; // Changed to string
   mainCategory: string;
   subcategory: string;
   shortDescription: string;
@@ -73,9 +73,8 @@ const blogSchema = new Schema<IBlog>(
   {
     title: { type: String, required: true },
     slug: { type: String, required: true, unique: true },
-    // BAGUHIN ITO: Gawing String at alisin ang ref="User"
     author: {
-      type: String, 
+      type: String,
       required: true,
     },
     mainCategory: {
@@ -88,15 +87,30 @@ const blogSchema = new Schema<IBlog>(
       required: true,
       validate: {
         validator: function (this: any, value: string) {
-          // Validate subcategory based on main category
+          // 1. Kunin ang mainCategory depende sa context (Create vs Update)
+          let mainCat = this.mainCategory;
+
+          // Check kung ito ay isang Update operation (findByIdAndUpdate / patch)
+          if (!mainCat && this.getUpdate) {
+            const update = this.getUpdate();
+            // Tinitingnan kung nasa direct body o nasa loob ng $set ang mainCategory
+            mainCat = update.mainCategory || (update.$set && update.$set.mainCategory);
+          }
+
+          // 2. Validate subcategory based on main category
           const validSubcategories: { [key: string]: string[] } = {
             [MainCategory.MAIN_SERVICE_CATEGORIES]: getAllValues(MainServiceSubcategory),
             [MainCategory.INDUSTRY_SPECIFIC_INSIGHTS]: getAllValues(IndustrySpecificSubcategory),
             [MainCategory.BUSINESS_GROWTH_STRATEGY]: getAllValues(BusinessGrowthSubcategory),
             [MainCategory.COMPANY_CULTURE_UPDATES]: getAllValues(CompanyCultureSubcategory),
           };
-          
-          const allowedSubcategories = validSubcategories[this.mainCategory] || [];
+
+          // 3. Kung nag-uupdate tayo ng subcategory lang at hindi kasama ang mainCategory sa payload,
+          // kailangan nating payagan ito o i-skip ang validation kung walang mainCat na mahanap
+          // para hindi mag-error. Pero mas safe kung laging sine-send ng frontend ang dalawa.
+          if (!mainCat) return true;
+
+          const allowedSubcategories = validSubcategories[mainCat] || [];
           return allowedSubcategories.includes(value);
         },
         message: "Subcategory does not match the selected main category",
