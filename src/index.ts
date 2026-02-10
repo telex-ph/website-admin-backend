@@ -7,6 +7,7 @@ import authRouter from "./auth/auth.router.ts";
 import userRouter from "./users/user.router.ts";
 import caseStudyRouter from "./casestudy/casestudy.router.ts";
 import dashboardRouter from "./dashboard/dashboard.router.ts";
+import activityLogRouter from "./activity-logs/activity-log.router.ts";
 
 const app = express();
 const port = 3000;
@@ -86,6 +87,10 @@ app.use("/api/blogs", verifyJwt, blogRouter);
 app.use("/dashboard", verifyJwt, dashboardRouter);
 app.use("/api/dashboard", verifyJwt, dashboardRouter);
 
+// Activity Logs - PROTECTED routes
+app.use("/activity-logs", verifyJwt, activityLogRouter);
+app.use("/api/activity-logs", verifyJwt, activityLogRouter);
+
 // ============================================
 // ℹ️ HEALTH CHECK ENDPOINT
 // ============================================
@@ -104,6 +109,7 @@ app.get("/", (req, res) => {
         blogs: ["/blogs", "/api/blogs"],
         casestudies_manage: "/api/casestudies (POST/PATCH/DELETE)",
         dashboard: ["/dashboard", "/api/dashboard"],
+        activity_logs: ["/activity-logs", "/api/activity-logs"],
       }
     },
   });
@@ -131,6 +137,11 @@ app.listen(port, () => {
   console.log(`   - POST   /api/casestudies (create)`);
   console.log(`   - PATCH  /api/casestudies/:id (update)`);
   console.log(`   - DELETE /api/casestudies/:id (delete)`);
+  console.log(`   - GET    /api/activity-logs (get all logs)`);
+  console.log(`   - GET    /api/activity-logs/stats (get statistics)`);
+  console.log(`   - GET    /api/activity-logs/:id (get single log)`);
+  console.log(`   - GET    /api/activity-logs/admin/:email (get logs by admin)`);
+  console.log(`   - DELETE /api/activity-logs/cleanup (delete old logs)`);
   console.log(`   - All /api/users routes`);
   console.log(`   - All /api/dashboard routes`);
 });

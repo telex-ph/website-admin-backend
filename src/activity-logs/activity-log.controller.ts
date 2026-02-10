@@ -80,10 +80,10 @@ export const getAllActivityLogs = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Fetching activity logs error:", error.message);
-      res.status(400).json({ error: error.message });
+      res.status(500).json({ error: error.message });
     } else {
       console.error("Activity logs error:", error);
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -110,10 +110,10 @@ export const getActivityLog = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Fetching activity log error:", error.message);
-      res.status(400).json({ error: error.message });
+      res.status(500).json({ error: error.message });
     } else {
       console.error("Activity log error:", error);
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -138,10 +138,75 @@ export const getActivityLogsByAdmin = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Fetching activity logs by admin error:", error.message);
-      res.status(400).json({ error: error.message });
+      res.status(500).json({ error: error.message });
     } else {
       console.error("Activity log error:", error);
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// Get unread count for current user
+export const getUnreadCount = async (req: Request, res: Response) => {
+  try {
+    // @ts-ignore - user is added by verifyJwt middleware
+    const userEmail = req.user?.email;
+
+    if (!userEmail) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Count logs where the current user's email is NOT in readBy array
+    const unreadCount = await ActivityLog.countDocuments({
+      readBy: { $ne: userEmail }
+    });
+
+    res.status(200).json({ unreadCount });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Fetching unread count error:", error.message);
+      res.status(500).json({ error: error.message });
+    } else {
+      console.error("Unread count error:", error);
+      res.status(500).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// Mark logs as read for current user
+export const markAsRead = async (req: Request, res: Response) => {
+  try {
+    // @ts-ignore - user is added by verifyJwt middleware
+    const userEmail = req.user?.email;
+
+    if (!userEmail) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { logIds } = req.body;
+
+    // If no specific logIds provided, mark all as read
+    const filter = logIds && logIds.length > 0 
+      ? { _id: { $in: logIds }, readBy: { $ne: userEmail } }
+      : { readBy: { $ne: userEmail } };
+
+    // Add user email to readBy array for all unread logs
+    const result = await ActivityLog.updateMany(
+      filter,
+      { $addToSet: { readBy: userEmail } }
+    );
+
+    res.status(200).json({
+      message: "Logs marked as read",
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Marking logs as read error:", error.message);
+      res.status(500).json({ error: error.message });
+    } else {
+      console.error("Mark as read error:", error);
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -311,10 +376,10 @@ export const getActivityStats = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Fetching activity stats error:", error.message);
-      res.status(400).json({ error: error.message });
+      res.status(500).json({ error: error.message });
     } else {
       console.error("Activity stats error:", error);
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -351,10 +416,10 @@ export const deleteOldLogs = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Deleting old logs error:", error.message);
-      res.status(400).json({ error: error.message });
+      res.status(500).json({ error: error.message });
     } else {
       console.error("Delete logs error:", error);
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };

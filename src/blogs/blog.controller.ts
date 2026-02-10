@@ -12,6 +12,43 @@ import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
 import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
 
+// ============================================
+// 📅 AUTO-PUBLISH SCHEDULER
+// ============================================
+// Helper function to check and auto-publish scheduled blogs
+const autoPublishScheduledBlogs = async () => {
+  try {
+    const now = new Date();
+    
+    // Find all blogs with status "scheduled" and scheduledDate that has passed
+    const scheduledBlogs = await Blog.find({
+      status: "scheduled",
+      scheduledDate: { $lte: now }
+    });
+
+    if (scheduledBlogs.length > 0) {
+      console.log(`📅 [AUTO-PUBLISH] Found ${scheduledBlogs.length} scheduled blog(s) ready to publish`);
+      
+      for (const blog of scheduledBlogs) {
+        try {
+          // Update status to published
+          blog.status = "published";
+          await blog.save();
+          
+          console.log(`✅ [AUTO-PUBLISH] Published: "${blog.title}" (ID: ${blog._id})`);
+          console.log(`   - Scheduled Date: ${blog.scheduledDate}`);
+          console.log(`   - Published At: ${now}`);
+        } catch (error) {
+          console.error(`❌ [AUTO-PUBLISH] Error publishing blog ${blog._id}:`, error);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("❌ [AUTO-PUBLISH] Error in autoPublishScheduledBlogs:", error);
+  }
+};
+
+
 // Adding blog
 export const addBlog = async (req: Request, res: Response) => {
   // --- PRE-VALIDATION LOGIC PARA SA FORMDATA ---
@@ -115,6 +152,10 @@ export const addBlog = async (req: Request, res: Response) => {
 // Fetching all blogs with filtering and search
 export const getAllBlogs = async (req: Request, res: Response) => {
   try {
+    // 📅 AUTO-PUBLISH SCHEDULED BLOGS
+    // Check and automatically publish any scheduled blogs that have reached their scheduled date
+    await autoPublishScheduledBlogs();
+
     // Extract query parameters for filtering
     const { search, mainCategory, subcategory, status, author, sortBy, order } = req.query;
 
@@ -177,6 +218,9 @@ export const getAllBlogs = async (req: Request, res: Response) => {
 
 // Fetching single blog by ID with view tracking
 export const getBlog = async (req: Request, res: Response) => {
+  // 📅 AUTO-PUBLISH SCHEDULED BLOGS
+  await autoPublishScheduledBlogs();
+
   // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
@@ -218,6 +262,9 @@ export const getBlog = async (req: Request, res: Response) => {
 // Fetching single blog by slug with view tracking
 export const getBlogBySlug = async (req: Request, res: Response) => {
   try {
+    // 📅 AUTO-PUBLISH SCHEDULED BLOGS
+    await autoPublishScheduledBlogs();
+
     const { slug } = req.params;
 
     if (!slug) {
@@ -401,6 +448,12 @@ export const updateBlog = async (req: Request, res: Response) => {
     // Build update data
     const updateData: any = { ...body };
     
+    console.log("🔍 ========== UPDATE DATA DEBUG ==========");
+    console.log("🔍 Body mainCategory:", body.mainCategory);
+    console.log("🔍 Body subcategory:", body.subcategory);
+    console.log("🔍 UpdateData mainCategory:", updateData.mainCategory);
+    console.log("🔍 UpdateData subcategory:", updateData.subcategory);
+    
     // If title is being updated, regenerate slug
     if (body.title) {
       updateData.slug = toSlug(body.title);
@@ -419,9 +472,17 @@ export const updateBlog = async (req: Request, res: Response) => {
 
     console.log("📝 Final update data:", JSON.stringify(updateData, null, 2));
 
-    // Convert scheduledDate string to Date if present
-    if (updateData.scheduledDate) {
-      updateData.scheduledDate = new Date(updateData.scheduledDate);
+    // Convert scheduledDate string to Date if present, or explicitly set to undefined if null
+    if (updateData.scheduledDate !== undefined) {
+      if (updateData.scheduledDate === null) {
+        // Explicitly remove scheduledDate from the document
+        updateData.scheduledDate = undefined;
+        console.log("🗑️  Removing scheduledDate (set to undefined)");
+      } else {
+        // Convert string to Date object
+        updateData.scheduledDate = new Date(updateData.scheduledDate);
+        console.log("📅 Updated scheduledDate:", updateData.scheduledDate);
+      }
     }
 
     // Search for the id and update

@@ -21,6 +21,11 @@ const activityLogSchema = new Schema(
       type: Schema.Types.Mixed, // Can store any object structure
       default: {},
     },
+    // Array of admin emails who have read this log
+    readBy: {
+      type: [String],
+      default: [],
+    },
     // Timestamp fields - only one will be filled based on action
     createdAt: {
       type: Date,
