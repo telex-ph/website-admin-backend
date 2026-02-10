@@ -80,8 +80,8 @@ app.use("/users", verifyJwt, userRouter);
 app.use("/api/users", verifyJwt, userRouter);
 
 // Blogs - PROTECTED routes
-app.use("/blogs", verifyJwt, blogRouter);
-app.use("/api/blogs", verifyJwt, blogRouter);
+app.use("/blogs", blogRouter);
+app.use("/api/blogs", blogRouter);
 
 // Dashboard
 app.use("/dashboard", verifyJwt, dashboardRouter);

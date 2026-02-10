@@ -45,7 +45,7 @@ export interface IBlog {
   _id: mongoose.Types.ObjectId;
   title: string;
   slug: string;
-  author: string; // Changed to string
+  author: string;
   mainCategory: string;
   subcategory: string;
   shortDescription: string;
@@ -53,6 +53,8 @@ export interface IBlog {
   picture: string;
   status: "published" | "draft" | "scheduled";
   scheduledDate?: Date;
+  likeCount: number;
+  likedBy: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -125,6 +127,8 @@ const blogSchema = new Schema<IBlog>(
       required: true,
     },
     scheduledDate: { type: Date, required: false },
+    likeCount: { type: Number, default: 0 },
+    likedBy: { type: [String], default: [] },
   },
   {
     timestamps: true,
@@ -136,6 +140,7 @@ blogSchema.index({ slug: 1 });
 blogSchema.index({ mainCategory: 1, subcategory: 1 });
 blogSchema.index({ status: 1 });
 blogSchema.index({ createdAt: -1 });
+blogSchema.index({ likeCount: -1 });
 
 const Blog = model<IBlog>("Blog", blogSchema);
 export default Blog;

@@ -13,6 +13,18 @@ import { trackView } from "../common/services/analytics.service.ts";
 import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
 
 // ============================================
+// 🆕 HELPER: GET USER IDENTIFIER FOR LIKES
+// ============================================
+const getUserIdentifier = (req: Request): string => {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = forwarded 
+    ? (typeof forwarded === 'string' ? forwarded.split(',')[0] : forwarded[0])
+    : req.socket.remoteAddress || 'unknown';
+  
+  return ip;
+};
+
+// ============================================
 // 📅 AUTO-PUBLISH SCHEDULER
 // ============================================
 // Helper function to check and auto-publish scheduled blogs
@@ -115,6 +127,8 @@ export const addBlog = async (req: Request, res: Response) => {
       slug: toSlug(body.title),
       picture: pictureUrl,
       scheduledDate: body.scheduledDate ? new Date(body.scheduledDate) : undefined,
+      likeCount: 0,
+      likedBy: [],
     } as any;
 
     const blog = await Blog.create(newBlog);
@@ -234,21 +248,23 @@ export const getBlog = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
+    // Search for the id
     const blog = await Blog.findById(param.id).exec();
 
     if (!blog) {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Track view in background (don't wait for it)
-    trackView({
-      resourceType: "blog",
-      resourceId: param.id,
-      req,
-    }).catch((err) => console.error("View tracking error:", err));
+    // Track view
+    try {
+      await trackView(blog._id.toString(), "blog");
+    } catch (viewError) {
+      console.error("Error tracking view:", viewError);
+      // Don't fail the request if view tracking fails
+    }
 
     res.status(200).json(blog);
-  } catch (error: unknown) {
+  } catch (error) {
     if (error instanceof Error) {
       console.error("Fetching blog error:", error.message);
       res.status(400).json({ error: error.message });
@@ -259,36 +275,35 @@ export const getBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching single blog by slug with view tracking
+// Fetching blog by slug with view tracking
 export const getBlogBySlug = async (req: Request, res: Response) => {
-  try {
-    // 📅 AUTO-PUBLISH SCHEDULED BLOGS
-    await autoPublishScheduledBlogs();
+  // 📅 AUTO-PUBLISH SCHEDULED BLOGS
+  await autoPublishScheduledBlogs();
 
+  try {
     const { slug } = req.params;
 
     if (!slug) {
-      return res.status(400).json({
-        error: "Validation failed",
-        message: "Slug parameter is required",
-      });
+      return res.status(400).json({ error: "Slug parameter is required" });
     }
 
+    // Search for blog by slug
     const blog = await Blog.findOne({ slug }).exec();
 
     if (!blog) {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Track view in background (don't wait for it)
-    trackView({
-      resourceType: "blog",
-      resourceId: blog._id.toString(),
-      req,
-    }).catch((err) => console.error("View tracking error:", err));
+    // Track view
+    try {
+      await trackView(blog._id.toString(), "blog");
+    } catch (viewError) {
+      console.error("Error tracking view:", viewError);
+      // Don't fail the request if view tracking fails
+    }
 
     res.status(200).json(blog);
-  } catch (error: unknown) {
+  } catch (error) {
     if (error instanceof Error) {
       console.error("Fetching blog by slug error:", error.message);
       res.status(400).json({ error: error.message });
@@ -301,24 +316,21 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
 
 // Updating blog
 export const updateBlog = async (req: Request, res: Response) => {
-  console.log("📄 ============= UPDATE BLOG STARTED =============");
-  console.log("📦 Request body:", JSON.stringify(req.body, null, 2));
-  console.log("📎 File attached:", req.file ? `Yes - ${req.file.originalname}` : "No");
-  console.log("🆔 Blog ID from params:", req.params.id);
-  
-  // Validate the params
-  const parsedParams = getParamSchema.safeParse(req.params);
-  if (!parsedParams.success) {
-    return res.status(400).json({
-      error: "Validation failed",
-      message: "Request parameters do not match the expected schema",
+  console.log("🔄 ========== UPDATE BLOG REQUEST ==========");
+  console.log("📥 Request body:", JSON.stringify(req.body, null, 2));
+  console.log("📁 Has file?:", !!req.file);
+  if (req.file) {
+    console.log("📸 File details:", {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
     });
   }
 
   // --- PRE-VALIDATION LOGIC PARA SA FORMDATA ---
   let bodyToValidate = { ...req.body };
 
-  // 1. FIX: I-parse ang mainContent pabalik sa Array (kasi stringified ito sa FormData)
+  // 1. FIX: I-parse ang mainContent pabalik sa Array (kung stringified siya sa FormData)
   if (typeof bodyToValidate.mainContent === 'string') {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
@@ -329,13 +341,26 @@ export const updateBlog = async (req: Request, res: Response) => {
 
   // 2. FIX: I-handle ang empty strings mula sa FormData para sa optional/nullable fields
   if (bodyToValidate.scheduledDate === "" || bodyToValidate.scheduledDate === "null" || bodyToValidate.scheduledDate === "undefined") {
-    bodyToValidate.scheduledDate = null;
+    bodyToValidate.scheduledDate = undefined;
   }
 
-  // Validate the body gamit ang nilinis na data
+  // Check the params using Zod/validation
+  const parsedParams = getParamSchema.safeParse(req.params);
+
+  if (!parsedParams.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsedParams.data;
+
+  // Validate body
   const parsedBody = updateBlogSchema.safeParse(bodyToValidate);
 
   if (!parsedBody.success) {
+    console.error("❌ Validation errors:", parsedBody.error.issues);
     return res.status(400).json({
       error: "Validation failed",
       message: "Request body does not match the expected schema",
@@ -343,12 +368,7 @@ export const updateBlog = async (req: Request, res: Response) => {
     });
   }
 
-  const param: GetParamDto = parsedParams.data;
   const body: UpdateBlogDto = parsedBody.data;
-
-  console.log("✅ Validation passed!");
-  console.log("📋 Parsed body:", JSON.stringify(body, null, 2));
-  console.log("🎯 Target blog ID:", param.id);
 
   try {
     // Get existing blog for activity log
@@ -369,16 +389,15 @@ export const updateBlog = async (req: Request, res: Response) => {
       picture: existingBlog.picture,
     };
 
-    // 3. HANDLE IMAGE UPLOAD - FIXED LOGIC WITH COMPREHENSIVE ERROR HANDLING
-    let pictureUrl = existingBlog.picture; // default sa luma
+    // Handle file upload if present
+    let pictureUrl = existingBlog.picture;
     let hasPictureUpdate = false;
-    
+
     if (req.file) {
-      console.log("📸 ========== FILE UPLOAD DEBUG ==========");
-      console.log("📸 File name:", req.file.originalname);
-      console.log("📸 File size:", req.file.size, "bytes");
-      console.log("📸 File mimetype:", req.file.mimetype);
-      console.log("📸 File buffer length:", req.file.buffer?.length || 'N/A');
+      console.log("📸 ========== FILE UPLOAD DETECTED ==========");
+      console.log("📸 Original name:", req.file.originalname);
+      console.log("📸 MIME type:", req.file.mimetype);
+      console.log("📸 Size:", req.file.size, "bytes");
       console.log("📸 File path:", req.file.path || 'N/A');
       
       try {
@@ -601,5 +620,101 @@ export const deleteBlog = async (req: Request, res: Response) => {
       console.error("Blog error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
+  }
+};
+
+// ============================================
+// 🆕 LIKE/UNLIKE FUNCTIONALITY
+// ============================================
+
+// Like a blog
+export const likeBlog = async (req: Request, res: Response) => {
+  try {
+    const blogId = req.params.id;
+    const userIdentifier = getUserIdentifier(req);
+
+    const blog = await Blog.findById(blogId);
+    if (!blog) {
+      return res.status(404).json({ message: "Blog not found" });
+    }
+
+    // Check if user already liked this blog
+    if (blog.likedBy.includes(userIdentifier)) {
+      return res.status(400).json({ 
+        message: "You have already liked this blog",
+        likeCount: blog.likeCount,
+        hasLiked: true
+      });
+    }
+
+    // Add like
+    blog.likeCount += 1;
+    blog.likedBy.push(userIdentifier);
+    await blog.save();
+
+    res.status(200).json({ 
+      message: "Blog liked successfully",
+      likeCount: blog.likeCount,
+      hasLiked: true
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Unlike a blog
+export const unlikeBlog = async (req: Request, res: Response) => {
+  try {
+    const blogId = req.params.id;
+    const userIdentifier = getUserIdentifier(req);
+
+    const blog = await Blog.findById(blogId);
+    if (!blog) {
+      return res.status(404).json({ message: "Blog not found" });
+    }
+
+    // Check if user has liked this blog
+    if (!blog.likedBy.includes(userIdentifier)) {
+      return res.status(400).json({ 
+        message: "You haven't liked this blog yet",
+        likeCount: blog.likeCount,
+        hasLiked: false
+      });
+    }
+
+    // Remove like
+    blog.likeCount -= 1;
+    blog.likedBy = blog.likedBy.filter(id => id !== userIdentifier);
+    await blog.save();
+
+    res.status(200).json({ 
+      message: "Blog unliked successfully",
+      likeCount: blog.likeCount,
+      hasLiked: false
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Check if user has liked a blog
+export const checkLikeStatus = async (req: Request, res: Response) => {
+  try {
+    const blogId = req.params.id;
+    const userIdentifier = getUserIdentifier(req);
+
+    const blog = await Blog.findById(blogId);
+    if (!blog) {
+      return res.status(404).json({ message: "Blog not found" });
+    }
+
+    const hasLiked = blog.likedBy.includes(userIdentifier);
+
+    res.status(200).json({ 
+      hasLiked,
+      likeCount: blog.likeCount
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
