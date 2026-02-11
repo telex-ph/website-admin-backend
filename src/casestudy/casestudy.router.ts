@@ -7,6 +7,7 @@ import {
   getCaseStudyForEdit,
   updateCaseStudy,
   deleteCaseStudy,
+  likeCaseStudy,
 } from "./casestudy.controller.ts";
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
 import upload from "../middlewares/multer.ts";
@@ -20,6 +21,7 @@ const router = express.Router();
 router.get("/", getAllCaseStudies);                    // Get all case studies (with filters)
 router.get("/fetch/:slug", fetchCaseStudyBySlug);      // Get case study by slug
 router.get("/:id", getCaseStudy);                      // Get single case study by ID
+router.post("/:id/like", likeCaseStudy);               // Like a case study (public)
 
 // ============================================
 // 🔒 PROTECTED ROUTES (AUTHENTICATION REQUIRED)

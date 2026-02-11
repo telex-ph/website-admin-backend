@@ -39,6 +39,26 @@ const getUserId = (req: Request): string | null => {
   return userId.toString();
 };
 
+// Helper function to get client IP address
+const getClientIp = (req: Request): string => {
+  // Try to get IP from various headers (for proxy/load balancer scenarios)
+  const forwarded = req.headers['x-forwarded-for'];
+  const realIp = req.headers['x-real-ip'];
+  
+  if (forwarded) {
+    // x-forwarded-for can contain multiple IPs, get the first one
+    const ips = (forwarded as string).split(',');
+    return ips[0].trim();
+  }
+  
+  if (realIp) {
+    return realIp as string;
+  }
+  
+  // Fallback to socket remote address
+  return req.socket.remoteAddress || 'unknown';
+};
+
 // Helper function to parse form-data into proper structure
 const parseFormData = (body: any) => {
   console.log("📦 Parsing form data...");
@@ -233,72 +253,9 @@ export const addCaseStudy = async (req: Request, res: Response) => {
   }
 };
 
-// 🔍 IMPROVED: Fetching all case studies with BETTER ERROR LOGGING
-export const getAllCaseStudies = async (req: Request, res: Response) => {
-  console.log("\n📚 ===== GET ALL CASE STUDIES =====");
-  
-  try {
-    const { search, status, tags, sortBy, order, author } = req.query;
-    console.log("📋 Query params:", { search, status, tags, sortBy, order, author });
-    
-    const filter: any = {};
-
-    if (search) {
-      filter.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { subtitle: { $regex: search, $options: "i" } },
-        { "sections.subtitle": { $regex: search, $options: "i" } },
-        { "sections.text": { $regex: search, $options: "i" } },
-        { "challenge.title": { $regex: search, $options: "i" } },
-        { "challenge.text": { $regex: search, $options: "i" } },
-        { "solution.title": { $regex: search, $options: "i" } },
-        { "solution.text": { $regex: search, $options: "i" } },
-      ];
-    }
-
-    if (status) filter.status = status;
-    if (tags) {
-      const tagsArray = typeof tags === "string" ? tags.split(",") : tags;
-      filter.tags = { $in: tagsArray };
-    }
-    if (author) filter.author = author;
-
-    console.log("🔍 Filter:", JSON.stringify(filter, null, 2));
-
-    const sort: any = {};
-    if (sortBy) {
-      sort[sortBy as string] = order === "desc" ? -1 : 1;
-    } else {
-      sort.createdAt = -1;
-    }
-
-    console.log("📊 Sort:", JSON.stringify(sort, null, 2));
-    console.log("🔄 Fetching from database...");
-
-    const caseStudies = await CaseStudy.find(filter)
-      .sort(sort)
-      .exec();
-
-    console.log(`✅ Found ${caseStudies.length} case studies`);
-    console.log("🎉 ===== END GET ALL CASE STUDIES =====\n");
-
-    res.status(200).json(caseStudies);
-  } catch (error: unknown) {
-    console.error("❌ GET ALL ERROR:", error);
-    if (error instanceof Error) {
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
-      res.status(400).json({ error: error.message });
-    } else {
-      console.error("Unknown error:", error);
-      res.status(400).json({ error: "Unknown error occurred" });
-    }
-  }
-};
-
-// 🔍 IMPROVED: Fetching single case study by ID with BETTER ERROR LOGGING
+// Getting single case study by ID
 export const getCaseStudy = async (req: Request, res: Response) => {
-  console.log("\n🔍 ===== GET CASE STUDY BY ID =====");
+  console.log("\n🔍 ===== GET SINGLE CASE STUDY =====");
   
   const parsed = getParamSchema.safeParse(req.params);
   if (!parsed.success) {
@@ -322,17 +279,19 @@ export const getCaseStudy = async (req: Request, res: Response) => {
 
     console.log("✅ Found case study:", caseStudy.title);
 
-    trackView({
-      resourceType: "casestudy",
+    // Track view for analytics
+    await trackView({
+      resourceType: 'casestudy',
       resourceId: param.id,
+      title: caseStudy.title,
       req,
-    }).catch((err) => console.error("View tracking error:", err));
+    });
 
     console.log("🎉 ===== END GET CASE STUDY =====\n");
 
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
-    console.error("❌ GET BY ID ERROR:", error);
+    console.error("❌ GET ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);
@@ -344,21 +303,69 @@ export const getCaseStudy = async (req: Request, res: Response) => {
   }
 };
 
-// 🔍 IMPROVED: Fetching single case study by slug with BETTER ERROR LOGGING
+// Getting all case studies with filtering
+export const getAllCaseStudies = async (req: Request, res: Response) => {
+  console.log("\n📚 ===== GET ALL CASE STUDIES =====");
+  
+  try {
+    const { status, tags, author, search, sortBy = 'createdAt', order = 'desc' } = req.query;
+
+    // Build filter object
+    const filter: any = {};
+
+    if (status) {
+      filter.status = status;
+    }
+
+    if (tags) {
+      // Support multiple tags filtering
+      const tagArray = typeof tags === 'string' ? tags.split(',') : tags;
+      filter.tags = { $in: tagArray };
+    }
+
+    if (author) {
+      filter.author = { $regex: author, $options: 'i' };
+    }
+
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { subtitle: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    console.log("🔍 Filter:", filter);
+
+    // Build sort object
+    const sortOrder = order === 'asc' ? 1 : -1;
+    const sort: any = { [sortBy as string]: sortOrder };
+
+    const caseStudies = await CaseStudy.find(filter).sort(sort).exec();
+
+    console.log(`✅ Found ${caseStudies.length} case studies`);
+    console.log("🎉 ===== END GET ALL CASE STUDIES =====\n");
+
+    res.status(200).json(caseStudies);
+  } catch (error: unknown) {
+    console.error("❌ GET ALL ERROR:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Unknown error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// Fetch case study by slug (for public viewing)
 export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
-  console.log("\n🔍 ===== GET CASE STUDY BY SLUG =====");
+  console.log("\n🔍 ===== FETCH CASE STUDY BY SLUG =====");
   
   try {
     const { slug } = req.params;
-    console.log("📋 Looking for slug:", slug);
-    
-    if (!slug) {
-      console.error("❌ No slug provided");
-      return res.status(400).json({
-        error: "Validation failed",
-        message: "Slug parameter is required",
-      });
-    }
+    console.log("📋 Looking for case study with slug:", slug);
 
     const caseStudy = await CaseStudy.findOne({ slug }).exec();
 
@@ -369,17 +376,19 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
 
     console.log("✅ Found case study:", caseStudy.title);
 
-    trackView({
-      resourceType: "casestudy",
+    // Track view for analytics
+    await trackView({
+      resourceType: 'casestudy',
       resourceId: caseStudy._id.toString(),
+      title: caseStudy.title,
       req,
-    }).catch((err) => console.error("View tracking error:", err));
+    });
 
-    console.log("🎉 ===== END GET CASE STUDY BY SLUG =====\n");
+    console.log("🎉 ===== END FETCH BY SLUG =====\n");
 
     res.status(200).json(caseStudy);
   } catch (error: unknown) {
-    console.error("❌ GET BY SLUG ERROR:", error);
+    console.error("❌ FETCH ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);
@@ -391,8 +400,7 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
   }
 };
 
-
-// Fetching single case study by ID for editing (WITHOUT view tracking)
+// Getting case study for edit (authenticated route)
 export const getCaseStudyForEdit = async (req: Request, res: Response) => {
   console.log("\n✏️ ===== GET CASE STUDY FOR EDIT =====");
   
@@ -615,6 +623,86 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
     res.status(200).json({ message: "Case study deleted successfully", data: caseStudy });
   } catch (error) {
     console.error("❌ DELETE ERROR:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Unknown error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// ============================================
+// 👍 NEW: LIKE CASE STUDY FUNCTION
+// ============================================
+export const likeCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n❤️ ===== LIKE CASE STUDY =====");
+  
+  const parsed = getParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+  console.log("📋 Like request for case study ID:", param.id);
+
+  try {
+    const caseStudy = await CaseStudy.findById(param.id);
+
+    if (!caseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
+      return res.status(404).json({ error: "Case study not found" });
+    }
+
+    console.log("✅ Found case study:", caseStudy.title);
+
+    // Get client IP address
+    const clientIp = getClientIp(req);
+    console.log("🌐 Client IP:", clientIp);
+
+    // Check if this IP has already liked this case study
+    const existingLike = caseStudy.likes.find(
+      (like: any) => like.ipAddress === clientIp
+    );
+
+    if (existingLike) {
+      console.log("⚠️ IP address has already liked this case study");
+      return res.status(400).json({ 
+        error: "You have already liked this case study",
+        alreadyLiked: true,
+        likesCount: caseStudy.likesCount
+      });
+    }
+
+    // Add the new like
+    caseStudy.likes.push({
+      ipAddress: clientIp,
+      likedAt: new Date(),
+    });
+
+    // Update likes count
+    caseStudy.likesCount = caseStudy.likes.length;
+
+    // Save the updated case study
+    await caseStudy.save();
+
+    console.log("✅ Like added successfully!");
+    console.log(`📊 Total likes: ${caseStudy.likesCount}`);
+    console.log("🎉 ===== END LIKE CASE STUDY =====\n");
+
+    res.status(200).json({ 
+      message: "Case study liked successfully",
+      likesCount: caseStudy.likesCount,
+      liked: true
+    });
+  } catch (error: unknown) {
+    console.error("❌ LIKE ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);

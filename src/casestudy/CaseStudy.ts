@@ -19,6 +19,16 @@ const challengeSolutionSchema = new Schema(
   { _id: false }
 );
 
+// Sub-schema for likes tracking
+const likeSchema = new Schema(
+  {
+    ipAddress: { type: String, required: false },
+    userId: { type: String, required: false },
+    likedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const caseStudySchema = new Schema(
   {
     title: { type: String, required: true },
@@ -97,6 +107,18 @@ const caseStudySchema = new Schema(
         },
         message: "At least one solution is required",
       },
+    },
+
+    // NEW: Likes tracking - stores IP addresses or user IDs who liked this case study
+    likes: {
+      type: [likeSchema],
+      default: [],
+    },
+
+    // NEW: Total likes count (virtual or computed field for quick access)
+    likesCount: {
+      type: Number,
+      default: 0,
     },
   },
   {

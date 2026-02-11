@@ -5,7 +5,8 @@ import {
   getTopResources,
   getAllAnalytics,
   getComparison,
-  getCaseStudyStats, // <--- IMPORT THIS NEW FUNCTION
+  getCaseStudyStats,
+  getEngagementMetrics, // <--- NEW FUNCTION
 } from "./dashboard.controller.ts";
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
 
@@ -20,6 +21,10 @@ router.get("/stats", getDashboardStats);
 // NEW: Get aggregated stats specifically for Case Studies
 // Ilagay ito BAGO ang /stats/:resourceType o iba pang dynamic routes para hindi matakpan
 router.get("/stats/casestudies-summary", getCaseStudyStats); 
+
+// NEW: Get engagement metrics (views and likes) for charts
+// Supports query parameter: ?resourceType=all|blog|casestudy
+router.get("/engagement-metrics", getEngagementMetrics);
 
 // Get comparison between blogs and case studies
 router.get("/comparison", getComparison);

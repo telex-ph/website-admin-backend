@@ -268,23 +268,11 @@ export const getResourceAnalytics = async (req: Request, res: Response) => {
       resourceType,
       resourceId,
       resource: resource,
-      stats: {
-        totalViews: analytics.viewCount,
-        uniqueViews: analytics.uniqueViewCount,
-        lastViewedAt: analytics.lastViewedAt,
-        averageViewsPerDay:
-          recentDailyViews.length > 0
-            ? Math.round(
-                (recentDailyViews.reduce((sum: number, dv: any) => sum + dv.count, 0) /
-                  recentDailyViews.length) *
-                  100
-              ) / 100
-            : 0,
+      analytics: {
+        ...analytics,
+        recentDailyViews,
+        hourlyDistribution,
       },
-      dailyTrend: recentDailyViews,
-      hourlyDistribution,
-      recentViewsCount: recentViews.length,
-      totalViewsRecorded: analytics.views.length,
     });
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -575,6 +563,117 @@ export const getComparison = async (req: Request, res: Response) => {
       res.status(500).json({ error: error.message });
     } else {
       console.error("Comparison error:", error);
+      res.status(500).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+/**
+ * NEW: Get Engagement Metrics (Views and Likes) for Blogs and Case Studies
+ * Supports filtering by resourceType: 'all', 'blog', 'casestudy'
+ */
+export const getEngagementMetrics = async (req: Request, res: Response) => {
+  try {
+    const resourceType = (req.query.resourceType as string) || 'all';
+    const currentYear = new Date().getFullYear();
+    
+    // Build the filter based on resourceType
+    let analyticsFilter: any = {};
+    let blogFilter: any = {};
+    let caseStudyFilter: any = {};
+    
+    if (resourceType === 'blog') {
+      analyticsFilter = { resourceType: 'blog' };
+    } else if (resourceType === 'casestudy') {
+      analyticsFilter = { resourceType: 'casestudy' };
+    }
+    // If 'all', we fetch both (no filter needed)
+
+    // Initialize monthly data structure
+    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const monthlyData: { [key: string]: { views: number, likes: number } } = {};
+    
+    monthNames.forEach(month => {
+      monthlyData[month] = { views: 0, likes: 0 };
+    });
+
+    // Get Analytics data (for views)
+    const analyticsData = await Analytics.find(analyticsFilter).lean().exec();
+    
+    // Aggregate views by month from Analytics
+    analyticsData.forEach((analytics: any) => {
+      if (analytics.dailyViews && Array.isArray(analytics.dailyViews)) {
+        analytics.dailyViews.forEach((dailyView: any) => {
+          const date = new Date(dailyView.date);
+          const monthIndex = date.getMonth();
+          const year = date.getFullYear();
+          
+          if (year === currentYear) {
+            const monthName = monthNames[monthIndex];
+            monthlyData[monthName].views += dailyView.count || 0;
+          }
+        });
+      }
+    });
+
+    // Get Likes data from Blogs
+    if (resourceType === 'all' || resourceType === 'blog') {
+      const blogs = await Blog.find({}).lean().exec();
+      
+      blogs.forEach((blog: any) => {
+        if (blog.createdAt) {
+          const date = new Date(blog.createdAt);
+          const monthIndex = date.getMonth();
+          const year = date.getFullYear();
+          
+          if (year === currentYear) {
+            const monthName = monthNames[monthIndex];
+            monthlyData[monthName].likes += blog.likeCount || 0;
+          }
+        }
+      });
+    }
+
+    // Get Likes data from Case Studies
+    if (resourceType === 'all' || resourceType === 'casestudy') {
+      const caseStudies = await CaseStudy.find({}).lean().exec();
+      
+      caseStudies.forEach((caseStudy: any) => {
+        if (caseStudy.createdAt) {
+          const date = new Date(caseStudy.createdAt);
+          const monthIndex = date.getMonth();
+          const year = date.getFullYear();
+          
+          if (year === currentYear) {
+            const monthName = monthNames[monthIndex];
+            monthlyData[monthName].likes += caseStudy.likesCount || 0;
+          }
+        }
+      });
+    }
+
+    // Convert to array format for the chart (last 7 months)
+    const currentMonth = new Date().getMonth();
+    const result: Array<{ name: string, views: number, likes: number }> = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const monthIndex = (currentMonth - i + 12) % 12;
+      const monthName = monthNames[monthIndex];
+      result.push({
+        name: monthName,
+        views: monthlyData[monthName].views,
+        likes: monthlyData[monthName].likes
+      });
+    }
+
+    res.status(200).json(result);
+
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Engagement Metrics error:", error.message);
+      res.status(500).json({ error: error.message });
+    } else {
+      console.error("Engagement Metrics error:", error);
       res.status(500).json({ error: "Unknown error occurred" });
     }
   }
