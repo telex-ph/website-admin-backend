@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-const { Schema, model } = mongoose;
+const { Schema, model, models } = mongoose;
 
 const activityLogSchema = new Schema(
   {
@@ -53,5 +53,6 @@ const activityLogSchema = new Schema(
   }
 );
 
-const ActivityLog = model("ActivityLog", activityLogSchema);
+// Check if model already exists before compiling
+const ActivityLog = models.ActivityLog || model("ActivityLog", activityLogSchema);
 export default ActivityLog;

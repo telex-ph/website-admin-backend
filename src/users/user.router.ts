@@ -7,6 +7,7 @@ import {
   updateUser,
   changePassword,
   deleteUser,
+  updateTheme
 } from "./user.controller.ts";
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
 const router = express.Router();
@@ -16,7 +17,7 @@ router.get("/me", verifyJwt, getCurrentUser);
 
 // Change password endpoint
 router.post("/change-password", verifyJwt, changePassword);
-
+router.patch("/theme", verifyJwt, updateTheme);
 // Other user routes
 router.post("/", verifyJwt, addUser);
 router.get("/", verifyJwt, getAllUsers);

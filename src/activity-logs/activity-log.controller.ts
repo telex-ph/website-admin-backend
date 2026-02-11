@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import ActivityLog from "./Activitylog.ts";
+import ActivityLog from "./ActivityLog.ts";
 
 // Get all activity logs with filtering
 export const getAllActivityLogs = async (req: Request, res: Response) => {

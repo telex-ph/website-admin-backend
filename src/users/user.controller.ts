@@ -7,6 +7,39 @@ import {
 } from "../common/dto/get-param.dto.ts";
 import bcrypt from "bcrypt";
 import User from "./User.ts";
+import ActivityLog from "../activity-logs/ActivityLog.ts";
+
+// Helper function to create activity log
+const createActivityLog = async (
+  action: "CREATED" | "UPDATED" | "DELETED",
+  adminEmail: string,
+  details: any
+) => {
+  try {
+    const timestamp = new Date();
+    const logData: any = {
+      action,
+      module: "ACCOUNT_SETTINGS",
+      admin: adminEmail,
+      details,
+      readBy: [adminEmail], // Admin who performed the action has already "read" it
+    };
+
+    // Set the appropriate timestamp field based on action
+    if (action === "CREATED") {
+      logData.createdAt = timestamp;
+    } else if (action === "UPDATED") {
+      logData.updatedAt = timestamp;
+    } else if (action === "DELETED") {
+      logData.deletedAt = timestamp;
+    }
+
+    await ActivityLog.create(logData);
+  } catch (error) {
+    console.error("Error creating activity log:", error);
+    // Don't throw error - activity log failure shouldn't break the main operation
+  }
+};
 
 export const addUser = async (req: Request, res: Response) => {
   const parsed = createUserSchema.safeParse(req.body);
@@ -40,6 +73,20 @@ export const addUser = async (req: Request, res: Response) => {
     }
 
     const newUser = await User.create(userData);
+
+    // Get admin email from JWT payload
+    const adminEmail = (req as any).user?.email || "system";
+
+    // Create activity log
+    await createActivityLog("CREATED", adminEmail, {
+      userId: newUser._id,
+      email: newUser.email,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      department: newUser.department,
+      role: newUser.role,
+    });
+
     res.status(200).json(newUser);
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -154,11 +201,33 @@ export const updateUser = async (req: Request, res: Response) => {
   const body: UpdateUserDto = paraseBody.data;
 
   try {
+    // Get the user before update for logging purposes
+    const oldUser = await User.findById(param.id).exec();
+    
     // Search for the id and update
     const user = await User.findByIdAndUpdate(param.id, body, {
       new: true,
       runValidators: true,
     }).exec();
+
+    // Get admin email from JWT payload
+    const adminEmail = (req as any).user?.email || "system";
+
+    // Create activity log with old and new values
+    await createActivityLog("UPDATED", adminEmail, {
+      userId: user?._id,
+      email: user?.email,
+      updatedFields: body,
+      previousValues: oldUser ? {
+        firstName: oldUser.firstName,
+        lastName: oldUser.lastName,
+        email: oldUser.email,
+        contactNumber: oldUser.contactNumber,
+        department: oldUser.department,
+        role: oldUser.role,
+      } : null,
+    });
+
     res.status(200).json(user);
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -221,6 +290,18 @@ export const changePassword = async (req: Request, res: Response) => {
       { runValidators: false } // Disable validators to avoid casting errors
     ).exec();
 
+    // Get admin email from JWT payload
+    const adminEmail = userPayload.email || "system";
+
+    // Create activity log for password change
+    await createActivityLog("UPDATED", adminEmail, {
+      userId: userPayload.id,
+      email: user.email,
+      action: "Password Changed",
+      firstName: user.firstName,
+      lastName: user.lastName,
+    });
+
     res.status(200).json({ 
       message: "Password changed successfully" 
     });
@@ -249,8 +330,27 @@ export const deleteUser = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
+    // Get the user before deletion for logging purposes
+    const userToDelete = await User.findById(param.id).exec();
+    
     // Search for the id and delete
     const user = await User.findByIdAndDelete(param.id).exec();
+
+    // Get admin email from JWT payload
+    const adminEmail = (req as any).user?.email || "system";
+
+    // Create activity log
+    if (userToDelete) {
+      await createActivityLog("DELETED", adminEmail, {
+        userId: userToDelete._id,
+        email: userToDelete.email,
+        firstName: userToDelete.firstName,
+        lastName: userToDelete.lastName,
+        department: userToDelete.department,
+        role: userToDelete.role,
+      });
+    }
+
     res.status(200).json(user);
   } catch (error) {
     if (error instanceof Error) {
@@ -260,5 +360,28 @@ export const deleteUser = async (req: Request, res: Response) => {
       console.error("User error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
+  }
+};
+
+export const updateTheme = async (req: Request, res: Response) => {
+  try {
+    const { darkMode } = req.body;
+    const userPayload = (req as any).user;
+
+    if (!userPayload || !userPayload.id) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Update lang yung darkMode field
+    await User.findByIdAndUpdate(
+      userPayload.id,
+      { darkMode: darkMode },
+      { runValidators: false } 
+    ).exec();
+
+    res.status(200).json({ message: "Theme updated successfully" });
+  } catch (error: unknown) {
+    console.error("Update theme error:", error);
+    res.status(400).json({ error: "Failed to update theme" });
   }
 };
