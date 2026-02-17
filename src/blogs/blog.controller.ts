@@ -13,6 +13,44 @@ import { trackView } from "../common/services/analytics.service.ts";
 import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
 
 // ============================================
+// 📋 ACTIVITY LOG HELPERS
+// ============================================
+const BLOG_FIELD_LABELS: Record<string, string> = {
+  title: "Title",
+  status: "Status",
+  mainCategory: "Main Category",
+  subcategory: "Subcategory",
+  shortDescription: "Short Description",
+  scheduledDate: "Scheduled Date",
+  picture: "Cover Image",
+  author: "Author",
+};
+
+const buildBlogChanges = (
+  oldData: Record<string, any>,
+  newData: Record<string, any>,
+  fieldsUpdated: string[]
+) => {
+  const changes: { field: string; label: string; oldValue: any; newValue: any }[] = [];
+
+  for (const field of fieldsUpdated) {
+    if (!(field in BLOG_FIELD_LABELS)) continue;
+    const oldVal = oldData[field] ?? null;
+    const newVal = newData[field] ?? null;
+    // Only include if value actually changed
+    if (String(oldVal) === String(newVal)) continue;
+    changes.push({
+      field,
+      label: BLOG_FIELD_LABELS[field],
+      oldValue: oldVal,
+      newValue: newVal,
+    });
+  }
+
+  return changes;
+};
+
+// ============================================
 // 🆕 HELPER: GET USER IDENTIFIER FOR LIKES
 // ============================================
 const getUserIdentifier = (req: Request): string => {
@@ -147,6 +185,7 @@ export const addBlog = async (req: Request, res: Response) => {
         mainCategory: blog.mainCategory,
         subcategory: blog.subcategory,
         author: blog.author,
+        description: `Created blog post "${blog.title}"`,
       },
       req,
     });
@@ -530,25 +569,39 @@ export const updateBlog = async (req: Request, res: Response) => {
 
     // 🔴 LOG ACTIVITY - Blog Updated
     const adminEmail = getUserEmailFromRequest(req);
+    const newData = {
+      title: blog.title,
+      slug: blog.slug,
+      status: blog.status,
+      mainCategory: blog.mainCategory,
+      subcategory: blog.subcategory,
+      shortDescription: blog.shortDescription,
+      scheduledDate: blog.scheduledDate?.toISOString(),
+      picture: blog.picture,
+    };
+    const changes = buildBlogChanges(oldData, newData, Object.keys(body));
+    if (hasPictureUpdate) {
+      changes.push({
+        field: "picture",
+        label: "Cover Image",
+        oldValue: oldData.picture,
+        newValue: newData.picture,
+      });
+    }
+    const changedLabels = changes.map((c) => c.label).join(", ");
     await logActivity({
       action: "UPDATED",
       module: "BLOGS",
       admin: adminEmail,
       details: {
         blogId: blog._id.toString(),
+        title: blog.title,
         oldData,
-        newData: {
-          title: blog.title,
-          slug: blog.slug,
-          status: blog.status,
-          mainCategory: blog.mainCategory,
-          subcategory: blog.subcategory,
-          shortDescription: blog.shortDescription,
-          scheduledDate: blog.scheduledDate?.toISOString(),
-          picture: blog.picture,
-        },
+        newData,
         fieldsUpdated: Object.keys(body),
         pictureUpdated: hasPictureUpdate,
+        changes,
+        description: `Updated blog post "${blog.title}"${changedLabels ? ` — changed: ${changedLabels}` : ""}`,
       },
       req,
     });
@@ -612,7 +665,10 @@ export const deleteBlog = async (req: Request, res: Response) => {
       action: "DELETED",
       module: "BLOGS",
       admin: adminEmail,
-      details: deletedData,
+      details: {
+        ...deletedData,
+        description: `Deleted blog post "${deletedData.title}"`,
+      },
       req,
     });
 

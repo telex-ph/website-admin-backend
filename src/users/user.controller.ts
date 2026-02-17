@@ -13,7 +13,9 @@ import ActivityLog from "../activity-logs/ActivityLog.ts";
 const createActivityLog = async (
   action: "CREATED" | "UPDATED" | "DELETED",
   adminEmail: string,
-  details: any
+  details: any,
+  description?: string,
+  changes?: { field: string; label: string; oldValue: any; newValue: any }[]
 ) => {
   try {
     const timestamp = new Date();
@@ -21,7 +23,12 @@ const createActivityLog = async (
       action,
       module: "ACCOUNT_SETTINGS",
       admin: adminEmail,
-      details,
+      details: {
+        ...details,
+        ...(changes && changes.length > 0 ? { changes } : {}),
+        ...(description ? { description } : {}),
+      },
+      description: description || "",
       readBy: [adminEmail], // Admin who performed the action has already "read" it
     };
 
@@ -39,6 +46,38 @@ const createActivityLog = async (
     console.error("Error creating activity log:", error);
     // Don't throw error - activity log failure shouldn't break the main operation
   }
+};
+
+// Helper to build field-level changes for account updates
+const USER_FIELD_LABELS: Record<string, string> = {
+  firstName: "First Name",
+  lastName: "Last Name",
+  email: "Email",
+  contactNumber: "Contact Number",
+  department: "Department",
+  role: "Role",
+};
+
+const buildUserChanges = (
+  previousValues: Record<string, any>,
+  updatedFields: Record<string, any>
+) => {
+  const changes: { field: string; label: string; oldValue: any; newValue: any }[] = [];
+
+  for (const field of Object.keys(updatedFields)) {
+    if (!(field in USER_FIELD_LABELS)) continue;
+    const oldVal = previousValues[field] ?? null;
+    const newVal = updatedFields[field] ?? null;
+    if (String(oldVal) === String(newVal)) continue;
+    changes.push({
+      field,
+      label: USER_FIELD_LABELS[field],
+      oldValue: oldVal,
+      newValue: newVal,
+    });
+  }
+
+  return changes;
 };
 
 export const addUser = async (req: Request, res: Response) => {
@@ -78,14 +117,20 @@ export const addUser = async (req: Request, res: Response) => {
     const adminEmail = (req as any).user?.email || "system";
 
     // Create activity log
-    await createActivityLog("CREATED", adminEmail, {
-      userId: newUser._id,
-      email: newUser.email,
-      firstName: newUser.firstName,
-      lastName: newUser.lastName,
-      department: newUser.department,
-      role: newUser.role,
-    });
+    await createActivityLog(
+      "CREATED",
+      adminEmail,
+      {
+        userId: newUser._id,
+        email: newUser.email,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        department: newUser.department,
+        role: newUser.role,
+        name: `${newUser.firstName} ${newUser.lastName}`,
+      },
+      `Created account for ${newUser.firstName} ${newUser.lastName} (${newUser.email})`
+    );
 
     res.status(200).json(newUser);
   } catch (error: unknown) {
@@ -214,19 +259,30 @@ export const updateUser = async (req: Request, res: Response) => {
     const adminEmail = (req as any).user?.email || "system";
 
     // Create activity log with old and new values
-    await createActivityLog("UPDATED", adminEmail, {
-      userId: user?._id,
-      email: user?.email,
-      updatedFields: body,
-      previousValues: oldUser ? {
-        firstName: oldUser.firstName,
-        lastName: oldUser.lastName,
-        email: oldUser.email,
-        contactNumber: oldUser.contactNumber,
-        department: oldUser.department,
-        role: oldUser.role,
-      } : null,
-    });
+    const previousValues = oldUser ? {
+      firstName: oldUser.firstName,
+      lastName: oldUser.lastName,
+      email: oldUser.email,
+      contactNumber: oldUser.contactNumber,
+      department: oldUser.department,
+      role: oldUser.role,
+    } : {};
+    const userChanges = buildUserChanges(previousValues, body);
+    const changedLabels = userChanges.map((c) => c.label).join(", ");
+    const fullName = `${user?.firstName} ${user?.lastName}`.trim();
+    await createActivityLog(
+      "UPDATED",
+      adminEmail,
+      {
+        userId: user?._id,
+        email: user?.email,
+        name: fullName,
+        updatedFields: body,
+        previousValues,
+      },
+      `Updated account for ${fullName}${changedLabels ? ` — changed: ${changedLabels}` : ""}`,
+      userChanges
+    );
 
     res.status(200).json(user);
   } catch (error: unknown) {
@@ -294,13 +350,19 @@ export const changePassword = async (req: Request, res: Response) => {
     const adminEmail = userPayload.email || "system";
 
     // Create activity log for password change
-    await createActivityLog("UPDATED", adminEmail, {
-      userId: userPayload.id,
-      email: user.email,
-      action: "Password Changed",
-      firstName: user.firstName,
-      lastName: user.lastName,
-    });
+    await createActivityLog(
+      "UPDATED",
+      adminEmail,
+      {
+        userId: userPayload.id,
+        email: user.email,
+        action: "Password Changed",
+        firstName: user.firstName,
+        lastName: user.lastName,
+        name: `${user.firstName} ${user.lastName}`,
+      },
+      `Changed password for ${user.firstName} ${user.lastName} (${user.email})`
+    );
 
     res.status(200).json({ 
       message: "Password changed successfully" 
@@ -341,14 +403,20 @@ export const deleteUser = async (req: Request, res: Response) => {
 
     // Create activity log
     if (userToDelete) {
-      await createActivityLog("DELETED", adminEmail, {
-        userId: userToDelete._id,
-        email: userToDelete.email,
-        firstName: userToDelete.firstName,
-        lastName: userToDelete.lastName,
-        department: userToDelete.department,
-        role: userToDelete.role,
-      });
+      await createActivityLog(
+        "DELETED",
+        adminEmail,
+        {
+          userId: userToDelete._id,
+          email: userToDelete.email,
+          firstName: userToDelete.firstName,
+          lastName: userToDelete.lastName,
+          department: userToDelete.department,
+          role: userToDelete.role,
+          name: `${userToDelete.firstName} ${userToDelete.lastName}`,
+        },
+        `Deleted account for ${userToDelete.firstName} ${userToDelete.lastName} (${userToDelete.email})`
+      );
     }
 
     res.status(200).json(user);

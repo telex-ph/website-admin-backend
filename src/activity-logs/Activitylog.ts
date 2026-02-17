@@ -17,8 +17,19 @@ const activityLogSchema = new Schema(
       type: String, // Email of the admin who performed the action
       required: true,
     },
+    // Human-readable description of the action performed
+    // e.g., "Updated title of 'My Blog Post' from 'Old Title' to 'New Title'"
+    description: {
+      type: String,
+      default: "",
+    },
     details: {
-      type: Schema.Types.Mixed, // Can store any object structure
+      // Can store any object structure.
+      // Convention:
+      //   CREATED / DELETED  → { title: string }
+      //   UPDATED            → { title: string, changes: [{ field, label, oldValue, newValue }] }
+      //   ACCOUNT_SETTINGS   → { name: string, email: string, changes?: [...] }
+      type: Schema.Types.Mixed,
       default: {},
     },
     // Array of admin emails who have read this log

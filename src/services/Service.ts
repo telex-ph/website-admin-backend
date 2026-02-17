@@ -8,6 +8,7 @@ export interface IService {
   description: string;
   badge: string;
   isActive: boolean;
+  coverPhoto?: string; // base64 string or URL
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,6 +20,7 @@ const serviceSchema = new Schema<IService>(
     description: { type: String, required: true },
     badge: { type: String, required: true },
     isActive: { type: Boolean, default: false },
+    coverPhoto: { type: String, default: null },
   },
   { timestamps: true }
 );

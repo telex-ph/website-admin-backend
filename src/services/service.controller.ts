@@ -31,6 +31,7 @@ export const addService = async (req: Request, res: Response) => {
       description: body.description,
       badge: body.badge,
       isActive: body.isActive !== undefined ? body.isActive : false,
+      coverPhoto: body.coverPhoto ?? null,
     } as any;
  
     const service = await Service.create(newService);
@@ -183,6 +184,12 @@ export const updateService = async (req: Request, res: Response) => {
     if (body.description !== undefined) updateData.description = body.description;
     if (body.badge !== undefined) updateData.badge = body.badge;
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
+
+    // ✅ FIX: use !== undefined instead of "in" operator — Zod strips absent keys from
+    // its parsed output, so "coverPhoto" in body is false even when the client sends
+    // coverPhoto: null explicitly. With !== undefined, null is correctly treated as
+    // "clear the photo" and the field is properly included in the update.
+    if (body.coverPhoto !== undefined) updateData.coverPhoto = body.coverPhoto ?? null;
 
     const updatedService = await Service.findByIdAndUpdate(id, updateData, {
       new: true,

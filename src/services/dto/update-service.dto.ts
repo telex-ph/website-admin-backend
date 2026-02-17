@@ -7,9 +7,16 @@ export const updateServiceSchema = z
     description: z.string().min(10, "Description must be at least 10 characters").optional(),
     badge: z.string().min(1, "Badge is required").optional(),
     isActive: z.boolean().optional(),
+    // ✅ FIX: accept string, null, or undefined — always preserved in parsed output when key is present
+    coverPhoto: z.string().nullable().optional(),
   })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: "At least one field must be provided",
-  });
+  .refine(
+    (data) => {
+      const { coverPhoto, ...rest } = data;
+      // At least one "real" field must be provided (coverPhoto alone is allowed too)
+      return Object.keys(data).length > 0;
+    },
+    { message: "At least one field must be provided" }
+  );
 
 export type UpdateServiceDto = z.infer<typeof updateServiceSchema>;

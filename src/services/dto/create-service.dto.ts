@@ -6,6 +6,7 @@ export const createServiceSchema = z.object({
   description: z.string().min(10, "Description must be at least 10 characters"),
   badge: z.string().min(1, "Badge is required"),
   isActive: z.boolean().optional().default(false),
+  coverPhoto: z.string().optional().nullable(),
 });
  
 export type CreateServiceDto = z.infer<typeof createServiceSchema>;
