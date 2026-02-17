@@ -240,8 +240,8 @@ export const addCaseStudy = async (req: Request, res: Response) => {
     console.log("🎉 ===== END CREATE CASE STUDY =====\n");
 
     res.status(201).json(newCaseStudy);
-  } catch (error: unknown) {
-    console.error("❌ ERROR:", error);
+  } catch (error) {
+    console.error("❌ CREATE ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);
@@ -253,64 +253,14 @@ export const addCaseStudy = async (req: Request, res: Response) => {
   }
 };
 
-// Getting single case study by ID
-export const getCaseStudy = async (req: Request, res: Response) => {
-  console.log("\n🔍 ===== GET SINGLE CASE STUDY =====");
-  
-  const parsed = getParamSchema.safeParse(req.params);
-  if (!parsed.success) {
-    console.error("❌ Validation failed:", parsed.error);
-    return res.status(400).json({
-      error: "Validation failed",
-      message: "Request parameters do not match the expected schema",
-    });
-  }
-
-  const param: GetParamDto = parsed.data;
-  console.log("📋 Looking for case study with ID:", param.id);
-
-  try {
-    const caseStudy = await CaseStudy.findById(param.id).exec();
-
-    if (!caseStudy) {
-      console.error("❌ Case study not found with ID:", param.id);
-      return res.status(404).json({ error: "Case study not found" });
-    }
-
-    console.log("✅ Found case study:", caseStudy.title);
-
-    // Track view for analytics
-    await trackView({
-      resourceType: 'casestudy',
-      resourceId: param.id,
-      title: caseStudy.title,
-      req,
-    });
-
-    console.log("🎉 ===== END GET CASE STUDY =====\n");
-
-    res.status(200).json(caseStudy);
-  } catch (error: unknown) {
-    console.error("❌ GET ERROR:", error);
-    if (error instanceof Error) {
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
-      res.status(400).json({ error: error.message });
-    } else {
-      console.error("Unknown error:", error);
-      res.status(400).json({ error: "Unknown error occurred" });
-    }
-  }
-};
-
-// Getting all case studies with filtering
+// Fetching all case studies with filtering
 export const getAllCaseStudies = async (req: Request, res: Response) => {
   console.log("\n📚 ===== GET ALL CASE STUDIES =====");
   
   try {
-    const { status, tags, author, search, sortBy = 'createdAt', order = 'desc' } = req.query;
+    const { status, tags, search, sortBy, order } = req.query;
+    console.log("🔍 Query params:", { status, tags, search, sortBy, order });
 
-    // Build filter object
     const filter: any = {};
 
     if (status) {
@@ -318,27 +268,28 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
     }
 
     if (tags) {
-      // Support multiple tags filtering
-      const tagArray = typeof tags === 'string' ? tags.split(',') : tags;
+      const tagArray = (tags as string).split(",");
       filter.tags = { $in: tagArray };
-    }
-
-    if (author) {
-      filter.author = { $regex: author, $options: 'i' };
     }
 
     if (search) {
       filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { subtitle: { $regex: search, $options: 'i' } },
+        { title: { $regex: search, $options: "i" } },
+        { subtitle: { $regex: search, $options: "i" } },
+        { "sections.subtitle": { $regex: search, $options: "i" } },
+        { "sections.text": { $regex: search, $options: "i" } },
       ];
     }
 
-    console.log("🔍 Filter:", filter);
+    const sort: any = {};
+    if (sortBy) {
+      sort[sortBy as string] = order === "desc" ? -1 : 1;
+    } else {
+      sort.createdAt = -1;
+    }
 
-    // Build sort object
-    const sortOrder = order === 'asc' ? 1 : -1;
-    const sort: any = { [sortBy as string]: sortOrder };
+    console.log("🔍 Filter:", filter);
+    console.log("📊 Sort:", sort);
 
     const caseStudies = await CaseStudy.find(filter).sort(sort).exec();
 
@@ -359,36 +310,50 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
   }
 };
 
-// Fetch case study by slug (for public viewing)
-export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
-  console.log("\n🔍 ===== FETCH CASE STUDY BY SLUG =====");
+// Fetching single case study by ID with view tracking
+export const getCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n📖 ===== GET CASE STUDY =====");
   
-  try {
-    const { slug } = req.params;
-    console.log("📋 Looking for case study with slug:", slug);
+  const parsed = getParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
 
-    const caseStudy = await CaseStudy.findOne({ slug }).exec();
+  const param: GetParamDto = parsed.data;
+  console.log("📋 Fetching case study with ID:", param.id);
+
+  try {
+    const caseStudy = await CaseStudy.findById(param.id).exec();
 
     if (!caseStudy) {
-      console.error("❌ Case study not found with slug:", slug);
+      console.error("❌ Case study not found with ID:", param.id);
       return res.status(404).json({ error: "Case study not found" });
     }
 
     console.log("✅ Found case study:", caseStudy.title);
 
-    // Track view for analytics
-    await trackView({
-      resourceType: 'casestudy',
-      resourceId: caseStudy._id.toString(),
-      title: caseStudy.title,
-      req,
-    });
+    // Track view
+    try {
+      await trackView({
+        resourceType: 'casestudy',
+        resourceId: caseStudy._id.toString(),
+        resourceTitle: caseStudy.title,
+        req,
+      });
+    } catch (error) {
+      console.error("Error tracking view (non-critical):", error instanceof Error ? error.message : error);
+      // Continue execution even if analytics tracking fails
+    }
 
-    console.log("🎉 ===== END FETCH BY SLUG =====\n");
+    console.log("🎉 ===== END GET CASE STUDY =====\n");
 
     res.status(200).json(caseStudy);
-  } catch (error: unknown) {
-    console.error("❌ FETCH ERROR:", error);
+  } catch (error) {
+    console.error("❌ GET ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);
@@ -400,7 +365,53 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
   }
 };
 
-// Getting case study for edit (authenticated route)
+// NEW: Fetching case study by slug (for frontend public pages)
+export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
+  console.log("\n🔍 ===== FETCH CASE STUDY BY SLUG =====");
+  
+  const { slug } = req.params;
+  console.log("📋 Fetching case study with slug:", slug);
+
+  try {
+    const caseStudy = await CaseStudy.findOne({ slug }).exec();
+
+    if (!caseStudy) {
+      console.error("❌ Case study not found with slug:", slug);
+      return res.status(404).json({ error: "Case study not found" });
+    }
+
+    console.log("✅ Found case study:", caseStudy.title);
+
+    // Track view
+    try {
+      await trackView({
+        resourceType: 'casestudy',
+        resourceId: caseStudy._id.toString(),
+        resourceTitle: caseStudy.title,
+        req,
+      });
+    } catch (error) {
+      console.error("Error tracking view (non-critical):", error instanceof Error ? error.message : error);
+      // Continue execution even if analytics tracking fails
+    }
+
+    console.log("🎉 ===== END FETCH CASE STUDY BY SLUG =====\n");
+
+    res.status(200).json(caseStudy);
+  } catch (error) {
+    console.error("❌ FETCH BY SLUG ERROR:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Unknown error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// NEW: Get case study for editing (no view tracking)
 export const getCaseStudyForEdit = async (req: Request, res: Response) => {
   console.log("\n✏️ ===== GET CASE STUDY FOR EDIT =====");
   
@@ -414,7 +425,7 @@ export const getCaseStudyForEdit = async (req: Request, res: Response) => {
   }
 
   const param: GetParamDto = parsed.data;
-  console.log("📋 Looking for case study to edit, ID:", param.id);
+  console.log("📋 Fetching case study for edit with ID:", param.id);
 
   try {
     const caseStudy = await CaseStudy.findById(param.id).exec();
@@ -427,9 +438,8 @@ export const getCaseStudyForEdit = async (req: Request, res: Response) => {
     console.log("✅ Found case study for editing:", caseStudy.title);
     console.log("🎉 ===== END GET CASE STUDY FOR EDIT =====\n");
 
-    // No analytics tracking - this is for editing only
     res.status(200).json(caseStudy);
-  } catch (error: unknown) {
+  } catch (error) {
     console.error("❌ GET FOR EDIT ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
@@ -444,23 +454,28 @@ export const getCaseStudyForEdit = async (req: Request, res: Response) => {
 
 // Updating case study
 export const updateCaseStudy = async (req: Request, res: Response) => {
-  console.log("\n🔄 ===== UPDATE CASE STUDY REQUEST =====");
+  console.log("\n🔄 ===== UPDATE CASE STUDY =====");
   
-  const parsedParams = getParamSchema.safeParse(req.params);
-  if (!parsedParams.success) {
+  const parsed = getParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
     return res.status(400).json({
       error: "Validation failed",
       message: "Request parameters do not match the expected schema",
     });
   }
 
-  const param: GetParamDto = parsedParams.data;
+  const param: GetParamDto = parsed.data;
+  console.log("📋 Updating case study with ID:", param.id);
 
   try {
     const existingCaseStudy = await CaseStudy.findById(param.id);
     if (!existingCaseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
       return res.status(404).json({ error: "Case study not found" });
     }
+
+    console.log("✅ Found case study to update:", existingCaseStudy.title);
 
     // Store old data for activity log
     const oldData = {
@@ -471,14 +486,22 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
       author: existingCaseStudy.author,
     };
 
+    // Parse form data
     const parsedData = parseFormData(req.body);
+    console.log("📋 Parsed update data:", {
+      title: parsedData.title,
+      subtitle: parsedData.subtitle,
+      author: parsedData.author,
+      status: parsedData.status,
+      sectionsCount: parsedData.sections.length,
+    });
+
     const updateData: any = {};
 
-    // Handle cover image update if new file is provided
-    const file = req.file;
-    if (file?.buffer) {
+    // Handle file upload if present
+    if (req.file?.buffer) {
       console.log("📤 Uploading new cover image...");
-      const url = await uploadFile(file);
+      const url = await uploadFile(req.file);
       console.log("✅ New cover uploaded:", url);
       updateData.cover = url;
     }
@@ -635,8 +658,10 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
 };
 
 // ============================================
-// 👍 NEW: LIKE CASE STUDY FUNCTION
+// 👍 LIKE/UNLIKE FUNCTIONALITY
 // ============================================
+
+// Like a case study
 export const likeCaseStudy = async (req: Request, res: Response) => {
   console.log("\n❤️ ===== LIKE CASE STUDY =====");
   
@@ -676,7 +701,8 @@ export const likeCaseStudy = async (req: Request, res: Response) => {
       return res.status(400).json({ 
         error: "You have already liked this case study",
         alreadyLiked: true,
-        likesCount: caseStudy.likesCount
+        likesCount: caseStudy.likesCount,
+        hasLiked: true
       });
     }
 
@@ -699,10 +725,144 @@ export const likeCaseStudy = async (req: Request, res: Response) => {
     res.status(200).json({ 
       message: "Case study liked successfully",
       likesCount: caseStudy.likesCount,
-      liked: true
+      hasLiked: true
     });
   } catch (error: unknown) {
     console.error("❌ LIKE ERROR:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Unknown error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// ============================================
+// 💔 NEW: UNLIKE CASE STUDY FUNCTION
+// ============================================
+export const unlikeCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n💔 ===== UNLIKE CASE STUDY =====");
+  
+  const parsed = getParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+  console.log("📋 Unlike request for case study ID:", param.id);
+
+  try {
+    const caseStudy = await CaseStudy.findById(param.id);
+
+    if (!caseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
+      return res.status(404).json({ error: "Case study not found" });
+    }
+
+    console.log("✅ Found case study:", caseStudy.title);
+
+    // Get client IP address
+    const clientIp = getClientIp(req);
+    console.log("🌐 Client IP:", clientIp);
+
+    // Check if this IP has liked this case study
+    const existingLikeIndex = caseStudy.likes.findIndex(
+      (like: any) => like.ipAddress === clientIp
+    );
+
+    if (existingLikeIndex === -1) {
+      console.log("⚠️ IP address hasn't liked this case study yet");
+      return res.status(400).json({ 
+        error: "You haven't liked this case study yet",
+        likesCount: caseStudy.likesCount,
+        hasLiked: false
+      });
+    }
+
+    // Remove the like
+    caseStudy.likes.splice(existingLikeIndex, 1);
+
+    // Update likes count
+    caseStudy.likesCount = caseStudy.likes.length;
+
+    // Save the updated case study
+    await caseStudy.save();
+
+    console.log("✅ Like removed successfully!");
+    console.log(`📊 Total likes: ${caseStudy.likesCount}`);
+    console.log("🎉 ===== END UNLIKE CASE STUDY =====\n");
+
+    res.status(200).json({ 
+      message: "Case study unliked successfully",
+      likesCount: caseStudy.likesCount,
+      hasLiked: false
+    });
+  } catch (error: unknown) {
+    console.error("❌ UNLIKE ERROR:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Unknown error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// ============================================
+// ✅ NEW: CHECK LIKE STATUS FOR CASE STUDY
+// ============================================
+export const checkCaseStudyLikeStatus = async (req: Request, res: Response) => {
+  console.log("\n🔍 ===== CHECK CASE STUDY LIKE STATUS =====");
+  
+  const parsed = getParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+  console.log("📋 Check like status for case study ID:", param.id);
+
+  try {
+    const caseStudy = await CaseStudy.findById(param.id);
+
+    if (!caseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
+      return res.status(404).json({ error: "Case study not found" });
+    }
+
+    console.log("✅ Found case study:", caseStudy.title);
+
+    // Get client IP address
+    const clientIp = getClientIp(req);
+    console.log("🌐 Client IP:", clientIp);
+
+    // Check if this IP has liked this case study
+    const hasLiked = caseStudy.likes.some(
+      (like: any) => like.ipAddress === clientIp
+    );
+
+    console.log(`📊 Has liked: ${hasLiked}, Total likes: ${caseStudy.likesCount}`);
+    console.log("🎉 ===== END CHECK CASE STUDY LIKE STATUS =====\n");
+
+    res.status(200).json({ 
+      hasLiked,
+      likesCount: caseStudy.likesCount
+    });
+  } catch (error: unknown) {
+    console.error("❌ CHECK LIKE STATUS ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);

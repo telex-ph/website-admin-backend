@@ -5,6 +5,7 @@ interface TrackViewParams {
   resourceType: "blog" | "casestudy";
   resourceId: string;
   req: Request;
+  resourceTitle?: string; // ✅ ADDED: optional, used by casestudy controller
 }
 
 /**

@@ -1,17 +1,39 @@
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
 
+// Sub-schema for individual view records
+const viewSchema = new Schema(
+  {
+    ipAddress: { type: String, required: true },
+    userAgent: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    userId: { type: String, required: false },
+  },
+  { _id: false }
+);
+
+// Sub-schema for daily view counts
+const dailyViewSchema = new Schema(
+  {
+    date: { type: Date, required: true },
+    count: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+// Main Analytics Schema
 const analyticsSchema = new Schema(
   {
     resourceType: {
       type: String,
       enum: ["blog", "casestudy"],
       required: true,
+      index: true,
     },
     resourceId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
       required: true,
-      // Remove refPath since we'll handle it differently
+      index: true,
     },
     viewCount: {
       type: Number,
@@ -21,52 +43,29 @@ const analyticsSchema = new Schema(
       type: Number,
       default: 0,
     },
-    // Track individual views with timestamps
-    views: [
-      {
-        ipAddress: { type: String },
-        userAgent: { type: String },
-        timestamp: { type: Date, default: Date.now },
-        userId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          default: null,
-        },
-      },
-    ],
-    // Track daily views for trend analysis
-    dailyViews: [
-      {
-        date: { type: Date, required: true },
-        count: { type: Number, default: 0 },
-      },
-    ],
+    views: {
+      type: [viewSchema],
+      default: [],
+    },
+    dailyViews: {
+      type: [dailyViewSchema],
+      default: [],
+    },
     lastViewedAt: {
       type: Date,
+      default: Date.now,
     },
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
   }
 );
 
-// Compound index for efficient queries
+// Compound index for faster queries
 analyticsSchema.index({ resourceType: 1, resourceId: 1 }, { unique: true });
-analyticsSchema.index({ "dailyViews.date": 1 });
 
-// Virtual field to get the referenced resource
-// We need to handle this manually in the controller since model names don't match resourceType values
-analyticsSchema.virtual("resource", {
-  ref: function (this: any) {
-    // Map resourceType to actual model name
-    return this.resourceType === "blog" ? "Blog" : "CaseStudy";
-  },
-  localField: "resourceId",
-  foreignField: "_id",
-  justOne: true,
-});
+// Index for date-based queries
+analyticsSchema.index({ "dailyViews.date": 1 });
 
 const Analytics = model("Analytics", analyticsSchema);
 export default Analytics;

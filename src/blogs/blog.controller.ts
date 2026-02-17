@@ -232,6 +232,8 @@ export const getAllBlogs = async (req: Request, res: Response) => {
 
 // Fetching single blog by ID with view tracking
 export const getBlog = async (req: Request, res: Response) => {
+  console.log("\n📖 ===== GET BLOG =====");
+  
   // 📅 AUTO-PUBLISH SCHEDULED BLOGS
   await autoPublishScheduledBlogs();
 
@@ -239,6 +241,7 @@ export const getBlog = async (req: Request, res: Response) => {
   const parsed = getParamSchema.safeParse(req.params);
 
   if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
     return res.status(400).json({
       error: "Validation failed",
       message: "Request parameters do not match the expected schema",
@@ -246,30 +249,43 @@ export const getBlog = async (req: Request, res: Response) => {
   }
 
   const param: GetParamDto = parsed.data;
+  console.log("📋 Fetching blog with ID:", param.id);
 
   try {
     // Search for the id
     const blog = await Blog.findById(param.id).exec();
 
     if (!blog) {
+      console.error("❌ Blog not found with ID:", param.id);
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Track view
+    console.log("✅ Found blog:", blog.title);
+
+    // 👁️ Track view - UPDATED TO USE CORRECT SIGNATURE
     try {
-      await trackView(blog._id.toString(), "blog");
+      await trackView({
+        resourceType: 'blog',
+        resourceId: blog._id.toString(),
+        req,
+      });
+      console.log("✅ View tracked successfully");
     } catch (viewError) {
-      console.error("Error tracking view:", viewError);
+      console.error("⚠️ Error tracking view (non-critical):", viewError instanceof Error ? viewError.message : viewError);
       // Don't fail the request if view tracking fails
     }
 
+    console.log("🎉 ===== END GET BLOG =====\n");
+
     res.status(200).json(blog);
   } catch (error) {
+    console.error("❌ GET BLOG ERROR:", error);
     if (error instanceof Error) {
-      console.error("Fetching blog error:", error.message);
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Blog error:", error);
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -277,11 +293,14 @@ export const getBlog = async (req: Request, res: Response) => {
 
 // Fetching blog by slug with view tracking
 export const getBlogBySlug = async (req: Request, res: Response) => {
+  console.log("\n🔍 ===== FETCH BLOG BY SLUG =====");
+  
   // 📅 AUTO-PUBLISH SCHEDULED BLOGS
   await autoPublishScheduledBlogs();
 
   try {
     const { slug } = req.params;
+    console.log("📋 Fetching blog with slug:", slug);
 
     if (!slug) {
       return res.status(400).json({ error: "Slug parameter is required" });
@@ -291,24 +310,36 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
     const blog = await Blog.findOne({ slug }).exec();
 
     if (!blog) {
+      console.error("❌ Blog not found with slug:", slug);
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Track view
+    console.log("✅ Found blog:", blog.title);
+
+    // 👁️ Track view - UPDATED TO USE CORRECT SIGNATURE
     try {
-      await trackView(blog._id.toString(), "blog");
+      await trackView({
+        resourceType: 'blog',
+        resourceId: blog._id.toString(),
+        req,
+      });
+      console.log("✅ View tracked successfully");
     } catch (viewError) {
-      console.error("Error tracking view:", viewError);
+      console.error("⚠️ Error tracking view (non-critical):", viewError instanceof Error ? viewError.message : viewError);
       // Don't fail the request if view tracking fails
     }
 
+    console.log("🎉 ===== END FETCH BLOG BY SLUG =====\n");
+
     res.status(200).json(blog);
   } catch (error) {
+    console.error("❌ FETCH BY SLUG ERROR:", error);
     if (error instanceof Error) {
-      console.error("Fetching blog by slug error:", error.message);
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Blog error:", error);
+      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -330,37 +361,32 @@ export const updateBlog = async (req: Request, res: Response) => {
   // --- PRE-VALIDATION LOGIC PARA SA FORMDATA ---
   let bodyToValidate = { ...req.body };
 
-  // 1. FIX: I-parse ang mainContent pabalik sa Array (kung stringified siya sa FormData)
+  console.log("🔍 RAW body before parsing:", bodyToValidate);
+
+  // 1. FIX: I-parse ang mainContent pabalik sa Array (kasi stringified ito sa FormData)
   if (typeof bodyToValidate.mainContent === 'string') {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
+      console.log("✅ Parsed mainContent:", bodyToValidate.mainContent);
     } catch (e) {
       return res.status(400).json({ error: "Invalid format for mainContent" });
     }
   }
 
   // 2. FIX: I-handle ang empty strings mula sa FormData para sa optional/nullable fields
+  // ⚠️ IMPORTANT: Explicitly handle scheduled date removal
   if (bodyToValidate.scheduledDate === "" || bodyToValidate.scheduledDate === "null" || bodyToValidate.scheduledDate === "undefined") {
-    bodyToValidate.scheduledDate = undefined;
+    bodyToValidate.scheduledDate = null; // Explicitly set to null to trigger removal
+    console.log("🗑️  ScheduledDate set to null (will be removed)");
   }
 
-  // Check the params using Zod/validation
-  const parsedParams = getParamSchema.safeParse(req.params);
+  console.log("🔍 Body after preprocessing:", JSON.stringify(bodyToValidate, null, 2));
 
-  if (!parsedParams.success) {
-    return res.status(400).json({
-      error: "Validation failed",
-      message: "Request parameters do not match the expected schema",
-    });
-  }
-
-  const param: GetParamDto = parsedParams.data;
-
-  // Validate body
+  // Validate the body gamit ang nilinis na data
   const parsedBody = updateBlogSchema.safeParse(bodyToValidate);
 
   if (!parsedBody.success) {
-    console.error("❌ Validation errors:", parsedBody.error.issues);
+    console.error("❌ Validation failed:", parsedBody.error);
     return res.status(400).json({
       error: "Validation failed",
       message: "Request body does not match the expected schema",
@@ -369,13 +395,33 @@ export const updateBlog = async (req: Request, res: Response) => {
   }
 
   const body: UpdateBlogDto = parsedBody.data;
+  console.log("✅ Validated body:", JSON.stringify(body, null, 2));
+
+  // Check the params using Zod/validation
+  const parsed = getParamSchema.safeParse(req.params);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+  console.log("📋 Updating blog with ID:", param.id);
 
   try {
-    // Get existing blog for activity log
+    // Get existing blog FIRST para ma-compare natin ang data
     const existingBlog = await Blog.findById(param.id).exec();
     if (!existingBlog) {
       return res.status(404).json({ error: "Blog not found" });
     }
+
+    console.log("📖 Existing blog state:");
+    console.log("   - Title:", existingBlog.title);
+    console.log("   - Picture:", existingBlog.picture);
+    console.log("   - Status:", existingBlog.status);
+    console.log("   - ScheduledDate:", existingBlog.scheduledDate);
 
     // Store old data for activity log
     const oldData = {
@@ -389,87 +435,48 @@ export const updateBlog = async (req: Request, res: Response) => {
       picture: existingBlog.picture,
     };
 
-    // Handle file upload if present
-    let pictureUrl = existingBlog.picture;
+    // 3. HANDLE IMAGE UPLOAD (optional for update)
+    let pictureUrl: string | undefined;
     let hasPictureUpdate = false;
 
     if (req.file) {
-      console.log("📸 ========== FILE UPLOAD DETECTED ==========");
-      console.log("📸 Original name:", req.file.originalname);
-      console.log("📸 MIME type:", req.file.mimetype);
-      console.log("📸 Size:", req.file.size, "bytes");
-      console.log("📸 File path:", req.file.path || 'N/A');
+      console.log("🖼️  New file detected, uploading...");
+      const result = await uploadFile(req.file);
       
-      try {
-        console.log("📸 Calling uploadFile function...");
-        const result = await uploadFile(req.file);
-        
-        console.log("📸 ========== UPLOAD RESULT DEBUG ==========");
-        console.log("📸 Result type:", typeof result);
-        console.log("📸 Result is null?:", result === null);
-        console.log("📸 Result is undefined?:", result === undefined);
-        console.log("📸 Result value:", JSON.stringify(result, null, 2));
-        
-        // Handle different return types from uploadFile
-        if (typeof result === 'string') {
-          console.log("📸 Result is a string, using directly");
-          pictureUrl = result;
-        } else if (result && typeof result === 'object') {
-          console.log("📸 Result is an object, checking properties...");
-          console.log("📸 Available properties:", Object.keys(result));
-          
-          // Try different possible property names
-          pictureUrl = (result as any).url || 
-                       (result as any).secure_url || 
-                       (result as any).location ||
-                       (result as any).path;
-          
-          console.log("📸 Extracted URL:", pictureUrl);
-        } else {
-          console.error("❌ Result is neither string nor object");
-        }
-        
-        if (!pictureUrl || pictureUrl === existingBlog.picture) {
-          console.error("❌ ========== UPLOAD FAILED ==========");
-          console.error("❌ No valid URL returned from upload");
-          console.error("❌ pictureUrl value:", pictureUrl);
-          console.error("❌ existingBlog.picture:", existingBlog.picture);
-          console.error("❌ Full result:", JSON.stringify(result, null, 2));
-          return res.status(400).json({ 
-            error: "Failed to upload picture - no URL returned",
-            debug: { 
-              resultType: typeof result, 
-              result,
-              pictureUrl,
-              existingPicture: existingBlog.picture
-            }
-          });
-        }
-        
-        hasPictureUpdate = true;
-        console.log("✅ ========== UPLOAD SUCCESS ==========");
-        console.log("✅ Picture uploaded successfully!");
-        console.log("✅ New URL:", pictureUrl);
-      } catch (uploadError) {
-        console.error("❌ ========== UPLOAD ERROR ==========");
-        console.error("❌ Upload function threw error:", uploadError);
-        console.error("❌ Error message:", uploadError instanceof Error ? uploadError.message : String(uploadError));
-        console.error("❌ Error stack:", uploadError instanceof Error ? uploadError.stack : 'N/A');
-        return res.status(400).json({ 
-          error: "Failed to upload picture", 
-          details: uploadError instanceof Error ? uploadError.message : String(uploadError)
-        });
+      // Handle different return types from uploadFile
+      if (typeof result === 'string') {
+        pictureUrl = result;
+      } else if (result && typeof result === 'object' && 'url' in result) {
+        pictureUrl = (result as any).url;
+      } else if (result && typeof result === 'object' && 'secure_url' in result) {
+        pictureUrl = (result as any).secure_url;
+      } else {
+        console.error("❌ Upload result is invalid:", result);
+        return res.status(400).json({ error: "Failed to upload picture - invalid response" });
       }
-    } else {
-      console.log("ℹ️  No new file uploaded, keeping existing picture:", existingBlog.picture);
+
+      if (!pictureUrl) {
+        console.error("❌ Picture URL is empty after upload");
+        return res.status(400).json({ error: "Failed to upload picture - no URL returned" });
+      }
+
+      console.log("✅ New picture URL obtained:", pictureUrl);
+      hasPictureUpdate = true;
     }
 
-    // Build update data
-    const updateData: any = { ...body };
-    
-    console.log("🔍 ========== UPDATE DATA DEBUG ==========");
-    console.log("🔍 Body mainCategory:", body.mainCategory);
-    console.log("🔍 Body subcategory:", body.subcategory);
+    // Build update object
+    const updateData: Partial<IBlog> = {} as any;
+
+    // Only add fields that are provided in the request
+    if (body.title !== undefined) updateData.title = body.title;
+    if (body.author !== undefined) updateData.author = body.author;
+    if (body.mainCategory !== undefined) updateData.mainCategory = body.mainCategory;
+    if (body.subcategory !== undefined) updateData.subcategory = body.subcategory;
+    if (body.shortDescription !== undefined) updateData.shortDescription = body.shortDescription;
+    if (body.mainContent !== undefined) updateData.mainContent = body.mainContent;
+    if (body.status !== undefined) updateData.status = body.status;
+    if (body.scheduledDate !== undefined) updateData.scheduledDate = body.scheduledDate as any;
+
     console.log("🔍 UpdateData mainCategory:", updateData.mainCategory);
     console.log("🔍 UpdateData subcategory:", updateData.subcategory);
     
