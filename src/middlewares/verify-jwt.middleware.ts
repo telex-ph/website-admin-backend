@@ -11,6 +11,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 /**
  * 🔒 STRICT AUTH MIDDLEWARE
  * Use this for protected routes that REQUIRE authentication
+ * Checks BOTH cookies and Authorization header
  */
 export const verifyJwt = async (
   req: AuthenticatedRequest,
@@ -20,12 +21,22 @@ export const verifyJwt = async (
   const publicPEM = process.env.PUBLIC_KEY;
   if (!publicPEM) throw new Error("Public key is empty");
 
-  const accessToken = req.cookies.accessToken;
+  // Check BOTH cookies and Authorization header
+  let accessToken = req.cookies.accessToken;
+  
+  // If no token in cookies, check Authorization header
+  if (!accessToken) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.substring(7); // Remove 'Bearer ' prefix
+    }
+  }
 
   console.log('🔐 Auth check:', {
-    hasToken: !!accessToken,
+    hasTokenInCookie: !!req.cookies.accessToken,
+    hasTokenInHeader: !!req.headers.authorization,
+    finalToken: !!accessToken,
     cookieNames: Object.keys(req.cookies),
-    allCookies: req.cookies
   });
 
   try {
@@ -37,7 +48,7 @@ export const verifyJwt = async (
       console.log("✅ JWT verified for user:", payload);
       return next();
     } else {
-      console.log("❌ No access token in cookies");
+      console.log("❌ No access token in cookies or Authorization header");
       
       // Clear any existing invalid cookies
       res.clearCookie('accessToken', {
@@ -89,7 +100,15 @@ export const optionalAuth = async (
     return next();
   }
 
-  const accessToken = req.cookies.accessToken;
+  // Check BOTH cookies and Authorization header
+  let accessToken = req.cookies.accessToken;
+  
+  if (!accessToken) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.substring(7);
+    }
+  }
 
   if (!accessToken) {
     console.log("📖 Public access - no token provided");

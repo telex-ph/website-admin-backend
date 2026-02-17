@@ -2,12 +2,23 @@ import express from "express";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import blogRouter from "./blogs/blog.router.ts";
+
+// ============================================
+// 📦 ROUTER IMPORTS
+// ============================================
 import authRouter from "./auth/auth.router.ts";
+import blogRouter from "./blogs/blog.router.ts";
 import userRouter from "./users/user.router.ts";
 import caseStudyRouter from "./casestudy/casestudy.router.ts";
 import dashboardRouter from "./dashboard/dashboard.router.ts";
 import activityLogRouter from "./activity-logs/activity-log.router.ts";
+import serviceRouter from "./services/service.router.ts";
+
+// ============================================
+// 🔐 MIDDLEWARE IMPORTS
+// ============================================
+// FIX: import must always be at the top of the file — never inside the body
+import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
 
 const app = express();
 const port = 3000;
@@ -22,72 +33,67 @@ mongoose
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 // ============================================
-// 🔧 CORS CONFIGURATION
+// 🔧 CORE MIDDLEWARE — MUST BE BEFORE ALL ROUTES
 // ============================================
+// FIX: cors → json → urlencoded → cookieParser must ALL be registered
+// before any route or debug logger. Previously cookieParser was registered
+// AFTER the debug logger and routes, so req.cookies was always empty
+// when verifyJwt ran → every protected request returned 400/401
+// even when the user was properly logged in.
+
 app.use(
   cors({
-    origin: "http://localhost:3001", // Frontend URL
+    origin: "http://localhost:3001",
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser()); // ← must be here so req.cookies is populated before any route runs
+
 // ============================================
-// 🛠 DEBUG LOGGING (Optional - remove in production)
+// 🛠 DEBUG LOGGING (remove in production)
 // ============================================
+// FIX: logger is now AFTER cookieParser so req.cookies is actually readable
 app.use((req, res, next) => {
   console.log("📨 Request:", {
     method: req.method,
     url: req.url,
     path: req.path,
     hasAuthHeader: !!req.headers.authorization,
-    hasCookie: !!req.cookies?.accessToken
+    hasCookie: !!req.cookies?.accessToken, // now correctly populated
   });
   next();
 });
 
 // ============================================
-// 🔧 BASIC MIDDLEWARE
-// ============================================
-app.use(express.json());
-app.use(cookieParser());
-app.use(express.urlencoded({ extended: true }));
-
-// ============================================
 // 🔓 PUBLIC ROUTES (NO AUTHENTICATION)
 // ============================================
-// IMPORTANT: Public routes MUST come FIRST!
-
-// Auth routes (login, register, logout)
 app.use("/auth", authRouter);
 app.use("/api/auth", authRouter);
 
-// Case Studies - PUBLIC for viewing
 app.use("/api/casestudies", caseStudyRouter);
 app.use("/casestudies", caseStudyRouter);
 
-// ============================================
-// 🔒 PROTECTED ROUTES (AUTHENTICATION REQUIRED)
-// ============================================
-// These routes require valid JWT token
+// Services: GET routes are public, POST/PATCH/DELETE are protected inside service.router.ts
+app.use("/api/services", serviceRouter);
+app.use("/services", serviceRouter);
 
-// Import verifyJwt middleware
-import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
-
-// Users
+// ============================================
+// 🔒 PROTECTED ROUTES (JWT REQUIRED)
+// ============================================
 app.use("/users", verifyJwt, userRouter);
 app.use("/api/users", verifyJwt, userRouter);
 
-// Blogs - PROTECTED routes
 app.use("/blogs", blogRouter);
 app.use("/api/blogs", blogRouter);
 
-// Dashboard
 app.use("/dashboard", verifyJwt, dashboardRouter);
 app.use("/api/dashboard", verifyJwt, dashboardRouter);
 
-// Activity Logs - PROTECTED routes
 app.use("/activity-logs", verifyJwt, activityLogRouter);
 app.use("/api/activity-logs", verifyJwt, activityLogRouter);
 
@@ -103,14 +109,16 @@ app.get("/", (req, res) => {
       public: {
         auth: ["/auth", "/api/auth"],
         casestudies_view: "/api/casestudies (GET)",
+        services_view: "/api/services (GET)",
       },
       protected: {
         users: ["/users", "/api/users"],
         blogs: ["/blogs", "/api/blogs"],
         casestudies_manage: "/api/casestudies (POST/PATCH/DELETE)",
+        services_manage: "/api/services (POST/PATCH/DELETE)",
         dashboard: ["/dashboard", "/api/dashboard"],
         activity_logs: ["/activity-logs", "/api/activity-logs"],
-      }
+      },
     },
   });
 });
@@ -121,14 +129,22 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`🚀 Backend is running on http://localhost:${port}`);
   console.log(`🌐 Frontend URL: http://localhost:3001`);
-  console.log(`✅ CORS enabled for frontend`);
+  console.log(`✅ CORS + cookieParser ready`);
   console.log(`\n📋 Public Routes:`);
-  console.log(`   - POST /api/auth/login`);
-  console.log(`   - POST /api/auth/register`);
+  console.log(`   - POST /api/auth/authenticate`);
+  console.log(`   - POST /api/auth/refresh`);
+  console.log(`   - POST /api/auth/logout`);
   console.log(`   - GET  /api/casestudies (view all)`);
   console.log(`   - GET  /api/casestudies/:id (view single)`);
   console.log(`   - GET  /api/casestudies/fetch/:slug (view by slug)`);
+  console.log(`   - GET  /api/services (view all services)`);
+  console.log(`   - GET  /api/services/:id (view single service)`);
+  console.log(`   - GET  /api/services/fetch/:serviceId (view by serviceId)`);
   console.log(`\n🔒 Protected Routes (require JWT):`);
+  console.log(`   - POST   /api/services (create service)`);
+  console.log(`   - PATCH  /api/services/:id/toggle (toggle service status)`);
+  console.log(`   - PATCH  /api/services/:id (update service)`);
+  console.log(`   - DELETE /api/services/:id (delete service)`);
   console.log(`   - POST   /api/blogs (create blog)`);
   console.log(`   - GET    /api/blogs (get all blogs)`);
   console.log(`   - GET    /api/blogs/:id (get single blog)`);
