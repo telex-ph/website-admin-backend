@@ -18,7 +18,7 @@ const serviceSchema = new Schema<IService>(
     name: { type: String, required: true },
     description: { type: String, required: true },
     badge: { type: String, required: true },
-    isActive: { type: Boolean, default: true },
+    isActive: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
