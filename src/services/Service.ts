@@ -22,5 +22,5 @@ const serviceSchema = new Schema<IService>(
   },
   { timestamps: true }
 );
-
+ 
 export default model<IService>("Service", serviceSchema);

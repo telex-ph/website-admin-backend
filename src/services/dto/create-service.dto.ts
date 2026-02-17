@@ -7,5 +7,5 @@ export const createServiceSchema = z.object({
   badge: z.string().min(1, "Badge is required"),
   isActive: z.boolean().optional().default(false),
 });
-
+ 
 export type CreateServiceDto = z.infer<typeof createServiceSchema>;

@@ -32,7 +32,7 @@ export const addService = async (req: Request, res: Response) => {
       badge: body.badge,
       isActive: body.isActive !== undefined ? body.isActive : false,
     } as any;
-
+ 
     const service = await Service.create(newService);
 
     const adminEmail = getUserEmailFromRequest(req);
