@@ -48,7 +48,7 @@ const getClientIp = (req: Request): string => {
   if (forwarded) {
     // x-forwarded-for can contain multiple IPs, get the first one
     const ips = (forwarded as string).split(',');
-    return ips[0].trim();
+    return (ips[0] ?? 'unknown').trim();
   }
   
   if (realIp) {
@@ -373,7 +373,7 @@ export const fetchCaseStudyBySlug = async (req: Request, res: Response) => {
   console.log("📋 Fetching case study with slug:", slug);
 
   try {
-    const caseStudy = await CaseStudy.findOne({ slug }).exec();
+    const caseStudy = await CaseStudy.findOne({ slug: slug as string }).exec();
 
     if (!caseStudy) {
       console.error("❌ Case study not found with slug:", slug);

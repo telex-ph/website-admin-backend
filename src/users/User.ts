@@ -1,7 +1,22 @@
 import mongoose from "mongoose";
 const { Schema, model, models } = mongoose;
 
-const userSchema = new Schema(
+export interface IUser {
+  _id: mongoose.Types.ObjectId;
+  firstName: string;
+  lastName: string;
+  email: string;
+  contactNumber: string;
+  profilePicture?: string | null;
+  department: number;
+  role: number;
+  password: string;
+  darkMode: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const userSchema = new Schema<IUser>(
   {
     firstName: {
       type: String,
@@ -49,5 +64,5 @@ const userSchema = new Schema(
 );
 
 // Check if model already exists before compiling
-const User = models.User || model("User", userSchema);
+const User = (models.User as mongoose.Model<IUser>) || model<IUser>("User", userSchema);
 export default User;

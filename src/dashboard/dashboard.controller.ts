@@ -609,8 +609,8 @@ export const getEngagementMetrics = async (req: Request, res: Response) => {
           const year = date.getFullYear();
           
           if (year === currentYear) {
-            const monthName = monthNames[monthIndex];
-            monthlyData[monthName].views += dailyView.count || 0;
+            const monthName = monthNames[monthIndex]!;
+            monthlyData[monthName]!.views += dailyView.count || 0;
           }
         });
       }
@@ -627,8 +627,8 @@ export const getEngagementMetrics = async (req: Request, res: Response) => {
           const year = date.getFullYear();
           
           if (year === currentYear) {
-            const monthName = monthNames[monthIndex];
-            monthlyData[monthName].likes += blog.likeCount || 0;
+            const monthName = monthNames[monthIndex]!;
+            monthlyData[monthName]!.likes += blog.likeCount || 0;
           }
         }
       });
@@ -645,8 +645,8 @@ export const getEngagementMetrics = async (req: Request, res: Response) => {
           const year = date.getFullYear();
           
           if (year === currentYear) {
-            const monthName = monthNames[monthIndex];
-            monthlyData[monthName].likes += caseStudy.likesCount || 0;
+            const monthName = monthNames[monthIndex]!;
+            monthlyData[monthName]!.likes += caseStudy.likesCount || 0;
           }
         }
       });
@@ -658,11 +658,11 @@ export const getEngagementMetrics = async (req: Request, res: Response) => {
     
     for (let i = 6; i >= 0; i--) {
       const monthIndex = (currentMonth - i + 12) % 12;
-      const monthName = monthNames[monthIndex];
+      const monthName = monthNames[monthIndex]!;
       result.push({
         name: monthName,
-        views: monthlyData[monthName].views,
-        likes: monthlyData[monthName].likes
+        views: monthlyData[monthName]!.views,
+        likes: monthlyData[monthName]!.likes
       });
     }
 

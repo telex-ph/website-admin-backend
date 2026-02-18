@@ -39,7 +39,7 @@ export const addService = async (req: Request, res: Response) => {
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "CREATED",
-      module: "SERVICES",
+      module: "SERVICES" as any,
       admin: adminEmail,
       details: {
         serviceId: service._id.toString(),
@@ -189,7 +189,7 @@ export const updateService = async (req: Request, res: Response) => {
     // its parsed output, so "coverPhoto" in body is false even when the client sends
     // coverPhoto: null explicitly. With !== undefined, null is correctly treated as
     // "clear the photo" and the field is properly included in the update.
-    if (body.coverPhoto !== undefined) updateData.coverPhoto = body.coverPhoto ?? null;
+    if (body.coverPhoto !== undefined) updateData.coverPhoto = (body.coverPhoto ?? null) as any;
 
     const updatedService = await Service.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -199,10 +199,10 @@ export const updateService = async (req: Request, res: Response) => {
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "UPDATED",
-      module: "SERVICES",
+      module: "SERVICES" as any,
       admin: adminEmail,
       details: {
-        serviceId: updatedService?._id.toString(),
+        serviceId: updatedService?._id?.toString() ?? '',
         oldData: { name: oldData.name, isActive: oldData.isActive },
         newData: { name: updatedService?.name, isActive: updatedService?.isActive },
         fieldsUpdated: Object.keys(body),
@@ -248,7 +248,7 @@ export const toggleServiceStatus = async (req: Request, res: Response) => {
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "UPDATED",
-      module: "SERVICES",
+      module: "SERVICES" as any,
       admin: adminEmail,
       details: {
         serviceId: service._id.toString(),
@@ -285,7 +285,7 @@ export const deleteService = async (req: Request, res: Response) => {
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "DELETED",
-      module: "SERVICES",
+      module: "SERVICES" as any,
       admin: adminEmail,
       details: {
         serviceId: service._id.toString(),

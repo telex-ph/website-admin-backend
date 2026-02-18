@@ -1,21 +1,22 @@
+import mongoose from "mongoose";
 import type { Request, Response } from "express";
-import ActivityLog from "./ActivityLog.ts";
+import ActivityLog, { type IActivityLog } from "./Activitylog.ts";
 
 // Get all activity logs with filtering
 export const getAllActivityLogs = async (req: Request, res: Response) => {
   try {
     const { action, module, admin, startDate, endDate, sortBy, order, limit, page } = req.query;
-    
-    const filter: any = {};
+
+    const filter: Record<string, any> = {};
 
     // Filter by action
     if (action) {
-      filter.action = action;
+      filter.action = action as IActivityLog["action"];
     }
 
     // Filter by module
     if (module) {
-      filter.module = module;
+      filter.module = module as IActivityLog["module"];
     }
 
     // Filter by admin email
@@ -25,28 +26,27 @@ export const getAllActivityLogs = async (req: Request, res: Response) => {
 
     // Filter by date range
     if (startDate || endDate) {
-      filter.$or = [];
-      const dateFilter: any = {};
-      
+      const dateFilter: Record<string, Date> = {};
+
       if (startDate) {
         dateFilter.$gte = new Date(startDate as string);
       }
       if (endDate) {
         dateFilter.$lte = new Date(endDate as string);
       }
-      
+
       // Check all timestamp fields
-      filter.$or.push(
+      filter.$or = [
         { createdAt: dateFilter },
         { updatedAt: dateFilter },
         { deletedAt: dateFilter },
         { loggedInAt: dateFilter },
-        { loggedOutAt: dateFilter }
-      );
+        { loggedOutAt: dateFilter },
+      ];
     }
 
     // Build sort object
-    const sort: any = {};
+    const sort: Record<string, 1 | -1> = {};
     if (sortBy) {
       sort[sortBy as string] = order === "desc" ? -1 : 1;
     } else {
@@ -60,12 +60,8 @@ export const getAllActivityLogs = async (req: Request, res: Response) => {
     const skip = (pageNum - 1) * limitNum;
 
     const [logs, total] = await Promise.all([
-      ActivityLog.find(filter)
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
-        .exec(),
-      ActivityLog.countDocuments(filter)
+      ActivityLog.find(filter).sort(sort).skip(skip).limit(limitNum).exec(),
+      ActivityLog.countDocuments(filter),
     ]);
 
     res.status(200).json({
@@ -130,9 +126,7 @@ export const getActivityLogsByAdmin = async (req: Request, res: Response) => {
       });
     }
 
-    const logs = await ActivityLog.find({ admin: email })
-      .sort({ _id: -1 })
-      .exec();
+    const logs = await ActivityLog.find({ admin: email }).sort({ _id: -1 }).exec();
 
     res.status(200).json(logs);
   } catch (error: unknown) {
@@ -150,7 +144,7 @@ export const getActivityLogsByAdmin = async (req: Request, res: Response) => {
 export const getUnreadCount = async (req: Request, res: Response) => {
   try {
     // @ts-ignore - user is added by verifyJwt middleware
-    const userEmail = req.user?.email;
+    const userEmail = req.user?.email as string | undefined;
 
     if (!userEmail) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -158,8 +152,8 @@ export const getUnreadCount = async (req: Request, res: Response) => {
 
     // Count logs where the current user's email is NOT in readBy array
     const unreadCount = await ActivityLog.countDocuments({
-      readBy: { $ne: userEmail }
-    });
+      readBy: { $ne: userEmail },
+    } as Record<string, any>);
 
     res.status(200).json({ unreadCount });
   } catch (error: unknown) {
@@ -177,24 +171,24 @@ export const getUnreadCount = async (req: Request, res: Response) => {
 export const markAsRead = async (req: Request, res: Response) => {
   try {
     // @ts-ignore - user is added by verifyJwt middleware
-    const userEmail = req.user?.email;
+    const userEmail = req.user?.email as string | undefined;
 
     if (!userEmail) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const { logIds } = req.body;
+    const { logIds } = req.body as { logIds?: string[] };
 
     // If no specific logIds provided, mark all as read
-    const filter = logIds && logIds.length > 0 
-      ? { _id: { $in: logIds }, readBy: { $ne: userEmail } }
-      : { readBy: { $ne: userEmail } };
+    const filter: Record<string, any> =
+      logIds && logIds.length > 0
+        ? { _id: { $in: logIds }, readBy: { $ne: userEmail } }
+        : { readBy: { $ne: userEmail } };
 
     // Add user email to readBy array for all unread logs
-    const result = await ActivityLog.updateMany(
-      filter,
-      { $addToSet: { readBy: userEmail } }
-    );
+    const result = await ActivityLog.updateMany(filter, {
+      $addToSet: { readBy: userEmail },
+    });
 
     res.status(200).json({
       message: "Logs marked as read",
@@ -215,31 +209,30 @@ export const markAsRead = async (req: Request, res: Response) => {
 export const getActivityStats = async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = req.query;
-    
-    const matchStage: any = {};
-    
+
+    const matchStage: Record<string, any> = {};
+
     if (startDate || endDate) {
-      matchStage.$or = [];
-      const dateFilter: any = {};
-      
+      const dateFilter: Record<string, Date> = {};
+
       if (startDate) {
         dateFilter.$gte = new Date(startDate as string);
       }
       if (endDate) {
         dateFilter.$lte = new Date(endDate as string);
       }
-      
-      matchStage.$or.push(
+
+      matchStage.$or = [
         { createdAt: dateFilter },
         { updatedAt: dateFilter },
         { deletedAt: dateFilter },
         { loggedInAt: dateFilter },
-        { loggedOutAt: dateFilter }
-      );
+        { loggedOutAt: dateFilter },
+      ];
     }
 
-    const pipeline: any[] = [];
-    
+    const pipeline: mongoose.PipelineStage[] = [];
+
     if (Object.keys(matchStage).length > 0) {
       pipeline.push({ $match: matchStage });
     }
@@ -249,16 +242,10 @@ export const getActivityStats = async (req: Request, res: Response) => {
         $group: {
           _id: null,
           totalLogs: { $sum: 1 },
-          byAction: {
-            $push: "$action"
-          },
-          byModule: {
-            $push: "$module"
-          },
-          uniqueAdmins: {
-            $addToSet: "$admin"
-          }
-        }
+          byAction: { $push: "$action" },
+          byModule: { $push: "$module" },
+          uniqueAdmins: { $addToSet: "$admin" },
+        },
       },
       {
         $project: {
@@ -271,46 +258,46 @@ export const getActivityStats = async (req: Request, res: Response) => {
                 $filter: {
                   input: "$byAction",
                   as: "action",
-                  cond: { $eq: ["$$action", "CREATED"] }
-                }
-              }
+                  cond: { $eq: ["$$action", "CREATED"] },
+                },
+              },
             },
             updated: {
               $size: {
                 $filter: {
                   input: "$byAction",
                   as: "action",
-                  cond: { $eq: ["$$action", "UPDATED"] }
-                }
-              }
+                  cond: { $eq: ["$$action", "UPDATED"] },
+                },
+              },
             },
             deleted: {
               $size: {
                 $filter: {
                   input: "$byAction",
                   as: "action",
-                  cond: { $eq: ["$$action", "DELETED"] }
-                }
-              }
+                  cond: { $eq: ["$$action", "DELETED"] },
+                },
+              },
             },
             login: {
               $size: {
                 $filter: {
                   input: "$byAction",
                   as: "action",
-                  cond: { $eq: ["$$action", "LOGIN"] }
-                }
-              }
+                  cond: { $eq: ["$$action", "LOGIN"] },
+                },
+              },
             },
             logout: {
               $size: {
                 $filter: {
                   input: "$byAction",
                   as: "action",
-                  cond: { $eq: ["$$action", "LOGOUT"] }
-                }
-              }
-            }
+                  cond: { $eq: ["$$action", "LOGOUT"] },
+                },
+              },
+            },
           },
           moduleCounts: {
             casestudy: {
@@ -318,61 +305,63 @@ export const getActivityStats = async (req: Request, res: Response) => {
                 $filter: {
                   input: "$byModule",
                   as: "module",
-                  cond: { $eq: ["$$module", "CASESTUDY"] }
-                }
-              }
+                  cond: { $eq: ["$$module", "CASESTUDY"] },
+                },
+              },
             },
             blogs: {
               $size: {
                 $filter: {
                   input: "$byModule",
                   as: "module",
-                  cond: { $eq: ["$$module", "BLOGS"] }
-                }
-              }
+                  cond: { $eq: ["$$module", "BLOGS"] },
+                },
+              },
             },
             accountSettings: {
               $size: {
                 $filter: {
                   input: "$byModule",
                   as: "module",
-                  cond: { $eq: ["$$module", "ACCOUNT_SETTINGS"] }
-                }
-              }
+                  cond: { $eq: ["$$module", "ACCOUNT_SETTINGS"] },
+                },
+              },
             },
             auth: {
               $size: {
                 $filter: {
                   input: "$byModule",
                   as: "module",
-                  cond: { $eq: ["$$module", "AUTH"] }
-                }
-              }
-            }
-          }
-        }
+                  cond: { $eq: ["$$module", "AUTH"] },
+                },
+              },
+            },
+          },
+        },
       }
     );
 
     const stats = await ActivityLog.aggregate(pipeline);
 
-    res.status(200).json(stats[0] || {
-      totalLogs: 0,
-      uniqueAdmins: 0,
-      actionCounts: {
-        created: 0,
-        updated: 0,
-        deleted: 0,
-        login: 0,
-        logout: 0
-      },
-      moduleCounts: {
-        casestudy: 0,
-        blogs: 0,
-        accountSettings: 0,
-        auth: 0
+    res.status(200).json(
+      stats[0] || {
+        totalLogs: 0,
+        uniqueAdmins: 0,
+        actionCounts: {
+          created: 0,
+          updated: 0,
+          deleted: 0,
+          login: 0,
+          logout: 0,
+        },
+        moduleCounts: {
+          casestudy: 0,
+          blogs: 0,
+          accountSettings: 0,
+          auth: 0,
+        },
       }
-    });
+    );
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error("Fetching activity stats error:", error.message);
@@ -388,7 +377,7 @@ export const getActivityStats = async (req: Request, res: Response) => {
 export const deleteOldLogs = async (req: Request, res: Response) => {
   try {
     const { days } = req.query;
-    
+
     if (!days) {
       return res.status(400).json({
         error: "Validation failed",
@@ -406,8 +395,8 @@ export const deleteOldLogs = async (req: Request, res: Response) => {
         { deletedAt: { $lt: daysAgo, $ne: null } },
         { loggedInAt: { $lt: daysAgo, $ne: null } },
         { loggedOutAt: { $lt: daysAgo, $ne: null } },
-      ]
-    });
+      ],
+    } as Record<string, any>);
 
     res.status(200).json({
       message: `Deleted activity logs older than ${days} days`,

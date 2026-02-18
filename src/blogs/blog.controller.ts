@@ -41,7 +41,7 @@ const buildBlogChanges = (
     if (String(oldVal) === String(newVal)) continue;
     changes.push({
       field,
-      label: BLOG_FIELD_LABELS[field],
+      label: BLOG_FIELD_LABELS[field]!,
       oldValue: oldVal,
       newValue: newVal,
     });
@@ -50,22 +50,15 @@ const buildBlogChanges = (
   return changes;
 };
 
-// ============================================
-// 🆕 HELPER: GET USER IDENTIFIER FOR LIKES
-// ============================================
 const getUserIdentifier = (req: Request): string => {
   const forwarded = req.headers['x-forwarded-for'];
   const ip = forwarded 
-    ? (typeof forwarded === 'string' ? forwarded.split(',')[0] : forwarded[0])
+    ? (typeof forwarded === 'string' ? (forwarded.split(',')[0] ?? 'unknown') : (forwarded[0] ?? 'unknown'))
     : req.socket.remoteAddress || 'unknown';
   
   return ip;
 };
 
-// ============================================
-// 📅 AUTO-PUBLISH SCHEDULER
-// ============================================
-// Helper function to check and auto-publish scheduled blogs
 const autoPublishScheduledBlogs = async () => {
   try {
     const now = new Date();
@@ -526,7 +519,7 @@ export const updateBlog = async (req: Request, res: Response) => {
     
     // ✅ FIX: Always update picture if there's a new upload
     if (hasPictureUpdate) {
-      updateData.picture = pictureUrl;
+      updateData.picture = pictureUrl!;
       console.log("🖼️  ========== PICTURE UPDATE ==========");
       console.log("🖼️  Old picture:", existingBlog.picture);
       console.log("🖼️  New picture:", pictureUrl);
@@ -541,7 +534,7 @@ export const updateBlog = async (req: Request, res: Response) => {
     if (updateData.scheduledDate !== undefined) {
       if (updateData.scheduledDate === null) {
         // Explicitly remove scheduledDate from the document
-        updateData.scheduledDate = undefined;
+        delete (updateData as any).scheduledDate;
         console.log("🗑️  Removing scheduledDate (set to undefined)");
       } else {
         // Convert string to Date object

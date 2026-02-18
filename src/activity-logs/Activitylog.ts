@@ -1,7 +1,21 @@
 import mongoose from "mongoose";
 const { Schema, model, models } = mongoose;
 
-const activityLogSchema = new Schema(
+export interface IActivityLog {
+  action: "CREATED" | "UPDATED" | "DELETED" | "LOGIN" | "LOGOUT";
+  module: "CASESTUDY" | "BLOGS" | "ACCOUNT_SETTINGS" | "AUTH" | "SERVICES";
+  admin: string;
+  description: string;
+  details: any;
+  readBy: string[];
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  deletedAt: Date | null;
+  loggedInAt: Date | null;
+  loggedOutAt: Date | null;
+}
+
+const activityLogSchema = new Schema<IActivityLog>(
   {
     action: {
       type: String,
@@ -10,7 +24,7 @@ const activityLogSchema = new Schema(
     },
     module: {
       type: String,
-      enum: ["CASESTUDY", "BLOGS", "ACCOUNT_SETTINGS", "AUTH"],
+      enum: ["CASESTUDY", "BLOGS", "ACCOUNT_SETTINGS", "AUTH", "SERVICES"],
       required: true,
     },
     admin: {
@@ -65,5 +79,8 @@ const activityLogSchema = new Schema(
 );
 
 // Check if model already exists before compiling
-const ActivityLog = models.ActivityLog || model("ActivityLog", activityLogSchema);
+const ActivityLog =
+  (models.ActivityLog as mongoose.Model<IActivityLog>) ||
+  model<IActivityLog>("ActivityLog", activityLogSchema);
+
 export default ActivityLog;

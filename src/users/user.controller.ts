@@ -7,7 +7,7 @@ import {
 } from "../common/dto/get-param.dto.ts";
 import bcrypt from "bcrypt";
 import User from "./User.ts";
-import ActivityLog from "../activity-logs/ActivityLog.ts";
+import ActivityLog from "../activity-logs/Activitylog.ts";
 
 // Helper function to create activity log
 const createActivityLog = async (
@@ -71,7 +71,7 @@ const buildUserChanges = (
     if (String(oldVal) === String(newVal)) continue;
     changes.push({
       field,
-      label: USER_FIELD_LABELS[field],
+      label: USER_FIELD_LABELS[field]!,
       oldValue: oldVal,
       newValue: newVal,
     });
@@ -111,7 +111,7 @@ export const addUser = async (req: Request, res: Response) => {
       userData.profilePicture = user.profilePicture;
     }
 
-    const newUser = await User.create(userData);
+    const newUser = await User.create(userData) as any;
 
     // Get admin email from JWT payload
     const adminEmail = (req as any).user?.email || "system";
@@ -250,7 +250,7 @@ export const updateUser = async (req: Request, res: Response) => {
     const oldUser = await User.findById(param.id).exec();
     
     // Search for the id and update
-    const user = await User.findByIdAndUpdate(param.id, body, {
+    const user = await User.findByIdAndUpdate(param.id, body as any, {
       new: true,
       runValidators: true,
     }).exec();
@@ -343,7 +343,7 @@ export const changePassword = async (req: Request, res: Response) => {
     await User.findByIdAndUpdate(
       userPayload.id,
       { password: hashedPassword },
-      { runValidators: false } // Disable validators to avoid casting errors
+      { runValidators: false } as any // Disable validators to avoid casting errors
     ).exec();
 
     // Get admin email from JWT payload
@@ -444,7 +444,7 @@ export const updateTheme = async (req: Request, res: Response) => {
     await User.findByIdAndUpdate(
       userPayload.id,
       { darkMode: darkMode },
-      { runValidators: false } 
+      { runValidators: false } as any
     ).exec();
 
     res.status(200).json({ message: "Theme updated successfully" });
