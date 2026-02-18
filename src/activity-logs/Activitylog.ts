@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 const { Schema, model, models } = mongoose;
 
 export interface IActivityLog {
-  action: "CREATED" | "UPDATED" | "DELETED" | "LOGIN" | "LOGOUT";
+  action: "CREATED" | "UPDATED" | "DELETED" | "ARCHIVED" | "RESTORED" | "LOGIN" | "LOGOUT";
   module: "CASESTUDY" | "BLOGS" | "ACCOUNT_SETTINGS" | "AUTH" | "SERVICES";
   admin: string;
   description: string;
@@ -13,13 +13,14 @@ export interface IActivityLog {
   deletedAt: Date | null;
   loggedInAt: Date | null;
   loggedOutAt: Date | null;
+  restoredAt: Date | null;
 }
 
 const activityLogSchema = new Schema<IActivityLog>(
   {
     action: {
       type: String,
-      enum: ["CREATED", "UPDATED", "DELETED", "LOGIN", "LOGOUT"],
+      enum: ["CREATED", "UPDATED", "DELETED", "ARCHIVED", "RESTORED", "LOGIN", "LOGOUT"],
       required: true,
     },
     module: {
@@ -43,6 +44,7 @@ const activityLogSchema = new Schema<IActivityLog>(
       //   CREATED / DELETED  → { title: string }
       //   UPDATED            → { title: string, changes: [{ field, label, oldValue, newValue }] }
       //   ACCOUNT_SETTINGS   → { name: string, email: string, changes?: [...] }
+      //   RESTORED           → { title: string }
       type: Schema.Types.Mixed,
       default: {},
     },
@@ -69,6 +71,10 @@ const activityLogSchema = new Schema<IActivityLog>(
       default: null,
     },
     loggedOutAt: {
+      type: Date,
+      default: null,
+    },
+    restoredAt: {
       type: Date,
       default: null,
     },

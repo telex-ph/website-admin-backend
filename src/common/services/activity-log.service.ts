@@ -1,7 +1,7 @@
 import ActivityLog from "../../activity-logs/Activitylog.ts";
 import type { Request } from "express";
 
-type ActivityAction = "CREATED" | "UPDATED" | "DELETED" | "LOGIN" | "LOGOUT";
+export type ActivityAction = "CREATED" | "UPDATED" | "DELETED" | "LOGIN" | "LOGOUT" | "ARCHIVED" | "RESTORED";
 type ActivityModule = "CASESTUDY" | "BLOGS" | "ACCOUNT_SETTINGS" | "AUTH";
 
 interface LogActivityParams {
@@ -67,6 +67,8 @@ export const logActivity = async (params: LogActivityParams) => {
       deletedAt: null,
       loggedInAt: null,
       loggedOutAt: null,
+      archivedAt: null,
+      restoredAt: null,
     };
 
     // Set the appropriate timestamp based on action
@@ -85,6 +87,12 @@ export const logActivity = async (params: LogActivityParams) => {
         break;
       case "LOGOUT":
         logEntry.loggedOutAt = now;
+        break;
+      case "ARCHIVED":
+        logEntry.archivedAt = now;
+        break;
+      case "RESTORED":
+        logEntry.restoredAt = now;
         break;
     }
 

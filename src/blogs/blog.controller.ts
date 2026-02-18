@@ -10,7 +10,7 @@ import { updateBlogSchema, type UpdateBlogDto } from "./dto/update-blog.dto.ts";
 import { Types } from "mongoose";
 import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
-import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
+import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.ts";
 
 // ============================================
 // 📋 ACTIVITY LOG HELPERS
@@ -160,6 +160,7 @@ export const addBlog = async (req: Request, res: Response) => {
       scheduledDate: body.scheduledDate ? new Date(body.scheduledDate) : undefined,
       likeCount: 0,
       likedBy: [],
+      isArchive: false,
     } as any;
 
     const blog = await Blog.create(newBlog);
@@ -203,10 +204,14 @@ export const getAllBlogs = async (req: Request, res: Response) => {
     await autoPublishScheduledBlogs();
 
     // Extract query parameters for filtering
-    const { search, mainCategory, subcategory, status, author, sortBy, order } = req.query;
+    const { search, mainCategory, subcategory, status, author, sortBy, order, includeArchived } = req.query;
 
     // Build dynamic filter object
-    const filter: any = {};
+    // If includeArchived=true, show ONLY archived blogs (for the archive management page)
+    // Otherwise only show non-archived blogs
+    const filter: any = includeArchived === "true"
+      ? { isArchive: true }
+      : { isArchive: { $ne: true } };
 
     // Search in title, short description, and main content
     if (search) {
@@ -612,8 +617,8 @@ export const updateBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Deleting blog
-export const deleteBlog = async (req: Request, res: Response) => {
+// Archiving blog (soft delete)
+export const archiveBlog = async (req: Request, res: Response) => {
   // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
@@ -627,50 +632,52 @@ export const deleteBlog = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
-    // Get existing blog for activity log before deletion
+    // Get existing blog for activity log before archiving
     const existingBlog = await Blog.findById(param.id).exec();
     if (!existingBlog) {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Store data before deletion for activity log
-    const deletedData = {
-      blogId: existingBlog._id.toString(),
-      title: existingBlog.title,
-      slug: existingBlog.slug,
-      status: existingBlog.status,
-      mainCategory: existingBlog.mainCategory,
-      subcategory: existingBlog.subcategory,
-      author: existingBlog.author.toString(),
-      scheduledDate: existingBlog.scheduledDate?.toISOString(),
-    };
+    // Check if blog is already archived
+    if (existingBlog.isArchive) {
+      return res.status(400).json({ error: "Blog is already archived" });
+    }
 
-    // Search for the id and delete
-    const blog = await Blog.findByIdAndDelete(param.id).exec();
+    // Set isArchive to true instead of deleting
+    const blog = await Blog.findByIdAndUpdate(
+      param.id,
+      { isArchive: true },
+      { new: true }
+    ).exec();
 
     if (!blog) {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // 🔴 LOG ACTIVITY - Blog Deleted
+    // 🔴 LOG ACTIVITY - Blog Archived
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "DELETED",
       module: "BLOGS",
       admin: adminEmail,
       details: {
-        ...deletedData,
-        description: `Deleted blog post "${deletedData.title}"`,
+        blogId: existingBlog._id.toString(),
+        title: existingBlog.title,
+        slug: existingBlog.slug,
+        status: existingBlog.status,
+        mainCategory: existingBlog.mainCategory,
+        subcategory: existingBlog.subcategory,
+        author: existingBlog.author.toString(),
+        scheduledDate: existingBlog.scheduledDate?.toISOString(),
+        description: `Archived blog post "${existingBlog.title}"`,
       },
       req,
     });
 
-    res
-      .status(200)
-      .json({ message: "Blog deleted successfully", data: blog });
+    res.status(200).json({ message: "Blog archived successfully", data: blog });
   } catch (error) {
     if (error instanceof Error) {
-      console.error("Deleting blog error:", error.message);
+      console.error("Archiving blog error:", error.message);
       res.status(400).json({ error: error.message });
     } else {
       console.error("Blog error:", error);
@@ -772,5 +779,73 @@ export const checkLikeStatus = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+// ============================================
+// 🔄 RESTORE BLOG (unarchive)
+// ============================================
+
+export const restoreBlog = async (req: Request, res: Response) => {
+  const parsed = getParamSchema.safeParse(req.params);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+
+  try {
+    const existingBlog = await Blog.findById(param.id).exec();
+    if (!existingBlog) {
+      return res.status(404).json({ error: "Blog not found" });
+    }
+
+    // Check if blog is actually archived
+    if (!existingBlog.isArchive) {
+      return res.status(400).json({ error: "Blog is not archived" });
+    }
+
+    // Set isArchive to false to restore
+    const blog = await Blog.findByIdAndUpdate(
+      param.id,
+      { isArchive: false },
+      { new: true }
+    ).exec();
+
+    if (!blog) {
+      return res.status(404).json({ error: "Blog not found" });
+    }
+
+    // 🟢 LOG ACTIVITY - Blog Restored
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "RESTORED" as ActivityAction,
+      module: "BLOGS",
+      admin: adminEmail,
+      details: {
+        blogId: existingBlog._id.toString(),
+        title: existingBlog.title,
+        slug: existingBlog.slug,
+        status: existingBlog.status,
+        mainCategory: existingBlog.mainCategory,
+        subcategory: existingBlog.subcategory,
+        author: existingBlog.author.toString(),
+        description: `Restored blog post "${existingBlog.title}" from archive`,
+      },
+      req,
+    });
+
+    res.status(200).json({ message: "Blog restored successfully", data: blog });
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Restoring blog error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Blog error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
   }
 };

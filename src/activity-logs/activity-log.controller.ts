@@ -42,6 +42,7 @@ export const getAllActivityLogs = async (req: Request, res: Response) => {
         { deletedAt: dateFilter },
         { loggedInAt: dateFilter },
         { loggedOutAt: dateFilter },
+        { restoredAt: dateFilter },
       ];
     }
 
@@ -228,6 +229,7 @@ export const getActivityStats = async (req: Request, res: Response) => {
         { deletedAt: dateFilter },
         { loggedInAt: dateFilter },
         { loggedOutAt: dateFilter },
+        { restoredAt: dateFilter },
       ];
     }
 
@@ -277,6 +279,24 @@ export const getActivityStats = async (req: Request, res: Response) => {
                   input: "$byAction",
                   as: "action",
                   cond: { $eq: ["$$action", "DELETED"] },
+                },
+              },
+            },
+            archived: {
+              $size: {
+                $filter: {
+                  input: "$byAction",
+                  as: "action",
+                  cond: { $eq: ["$$action", "ARCHIVED"] },
+                },
+              },
+            },
+            restored: {
+              $size: {
+                $filter: {
+                  input: "$byAction",
+                  as: "action",
+                  cond: { $eq: ["$$action", "RESTORED"] },
                 },
               },
             },
@@ -351,6 +371,8 @@ export const getActivityStats = async (req: Request, res: Response) => {
           created: 0,
           updated: 0,
           deleted: 0,
+          archived: 0,
+          restored: 0,
           login: 0,
           logout: 0,
         },
@@ -395,6 +417,7 @@ export const deleteOldLogs = async (req: Request, res: Response) => {
         { deletedAt: { $lt: daysAgo, $ne: null } },
         { loggedInAt: { $lt: daysAgo, $ne: null } },
         { loggedOutAt: { $lt: daysAgo, $ne: null } },
+        { restoredAt: { $lt: daysAgo, $ne: null } },
       ],
     } as Record<string, any>);
 

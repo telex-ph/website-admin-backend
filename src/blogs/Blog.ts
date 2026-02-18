@@ -55,6 +55,7 @@ export interface IBlog {
   scheduledDate?: Date;
   likeCount: number;
   likedBy: string[];
+  isArchive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -129,6 +130,7 @@ const blogSchema = new Schema<IBlog>(
     scheduledDate: { type: Date, required: false },
     likeCount: { type: Number, default: 0 },
     likedBy: { type: [String], default: [] },
+    isArchive: { type: Boolean, default: false },
   },
   {
     timestamps: true,
@@ -141,6 +143,7 @@ blogSchema.index({ mainCategory: 1, subcategory: 1 });
 blogSchema.index({ status: 1 });
 blogSchema.index({ createdAt: -1 });
 blogSchema.index({ likeCount: -1 });
+blogSchema.index({ isArchive: 1 });
 
 const Blog = model<IBlog>("Blog", blogSchema);
 export default Blog;

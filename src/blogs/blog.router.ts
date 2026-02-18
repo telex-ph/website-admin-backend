@@ -5,7 +5,8 @@ import {
   getAllBlogs,
   getBlogBySlug,
   updateBlog,
-  deleteBlog,
+  archiveBlog,
+  restoreBlog,
   likeBlog,
   unlikeBlog,
   checkLikeStatus,
@@ -28,6 +29,7 @@ router.get("/:id/like-status", checkLikeStatus); // Check if user has liked
 // Protected routes - with image upload support
 router.post("/", verifyJwt, upload.single("picture"), addBlog);
 router.patch("/:id", verifyJwt, upload.single("picture"), updateBlog);
-router.delete("/:id", verifyJwt, deleteBlog);
+router.patch("/:id/archive", verifyJwt, archiveBlog); // Archive (soft delete)
+router.patch("/:id/restore", verifyJwt, restoreBlog); // Restore from archive
 
 export default router;

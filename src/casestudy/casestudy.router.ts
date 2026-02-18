@@ -6,7 +6,8 @@ import {
   fetchCaseStudyBySlug,
   getCaseStudyForEdit,
   updateCaseStudy,
-  deleteCaseStudy,
+  archiveCaseStudy,
+  restoreCaseStudy,
   likeCaseStudy,
   unlikeCaseStudy,
   checkCaseStudyLikeStatus,
@@ -38,6 +39,7 @@ router.get("/:id/like-status", checkCaseStudyLikeStatus); // Check if user has l
 router.get("/edit/:id", verifyJwt, getCaseStudyForEdit);                    // Get case study for editing
 router.post("/", verifyJwt, upload.single("cover"), addCaseStudy);          // Create new case study
 router.patch("/:id", verifyJwt, upload.single("cover"), updateCaseStudy);   // Update case study
-router.delete("/:id", verifyJwt, deleteCaseStudy);                          // Delete case study
+router.patch("/:id/archive", verifyJwt, archiveCaseStudy);                  // Archive case study (soft delete)
+router.patch("/:id/restore", verifyJwt, restoreCaseStudy);                  // Restore case study from archive
 
 export default router;

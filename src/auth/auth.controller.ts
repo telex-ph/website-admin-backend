@@ -32,6 +32,9 @@ export const authenticate = async (req: Request, res: Response) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) throw new Error("Invalid credentials");
 
+    // Check if user is archived
+    if (user.isArchived) throw new Error("Account is deactivated. Please contact the administrator.");
+
     // Token creation - NOW INCLUDES USER ID!
     const accessToken = await createAccessToken({
       id: user._id.toString(),

@@ -120,6 +120,12 @@ const caseStudySchema = new Schema(
       type: Number,
       default: 0,
     },
+
+    // Archive flag - soft delete mechanism
+    isArchived: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

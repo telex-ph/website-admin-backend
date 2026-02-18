@@ -7,7 +7,7 @@ import {
 } from "../common/dto/get-param.dto.ts";
 import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
-import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
+import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.ts";
 
 // Helper function to extract user ID from request (tries all possible locations)
 const getUserId = (req: Request): string | null => {
@@ -258,10 +258,14 @@ export const getAllCaseStudies = async (req: Request, res: Response) => {
   console.log("\n📚 ===== GET ALL CASE STUDIES =====");
   
   try {
-    const { status, tags, search, sortBy, order } = req.query;
-    console.log("🔍 Query params:", { status, tags, search, sortBy, order });
+    const { status, tags, search, sortBy, order, includeArchived } = req.query;
+    console.log("🔍 Query params:", { status, tags, search, sortBy, order, includeArchived });
 
-    const filter: any = {};
+    // If includeArchived=true, show ONLY archived case studies (for the archive management page)
+    // Otherwise only show non-archived case studies
+    const filter: any = includeArchived === "true"
+      ? { isArchived: true }
+      : { isArchived: { $ne: true } };
 
     if (status) {
       filter.status = status;
@@ -592,9 +596,9 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
   }
 };
 
-// Deleting case study
-export const deleteCaseStudy = async (req: Request, res: Response) => {
-  console.log("\n🗑️ ===== DELETE CASE STUDY =====");
+// Archiving case study (soft delete)
+export const archiveCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n📦 ===== ARCHIVE CASE STUDY =====");
   
   const parsed = getParamSchema.safeParse(req.params);
   if (!parsed.success) {
@@ -606,7 +610,7 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
   }
 
   const param: GetParamDto = parsed.data;
-  console.log("📋 Deleting case study with ID:", param.id);
+  console.log("📋 Archiving case study with ID:", param.id);
 
   try {
     const existingCaseStudy = await CaseStudy.findById(param.id);
@@ -615,10 +619,10 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Case study not found" });
     }
 
-    console.log("✅ Found case study to delete:", existingCaseStudy.title);
+    console.log("✅ Found case study to archive:", existingCaseStudy.title);
 
-    // Store data before deletion for activity log
-    const deletedData = {
+    // Store data for activity log
+    const archivedData = {
       caseStudyId: existingCaseStudy._id.toString(),
       title: existingCaseStudy.title,
       slug: existingCaseStudy.slug,
@@ -627,25 +631,29 @@ export const deleteCaseStudy = async (req: Request, res: Response) => {
       author: existingCaseStudy.author,
     };
 
-    const caseStudy = await CaseStudy.findByIdAndDelete(param.id).exec();
+    const caseStudy = await CaseStudy.findByIdAndUpdate(
+      param.id,
+      { isArchived: true },
+      { new: true }
+    ).exec();
 
-    console.log("✅ Case study deleted successfully!");
+    console.log("✅ Case study archived successfully!");
 
-    // 🔴 LOG ACTIVITY - Case Study Deleted
+    // 🔴 LOG ACTIVITY - Case Study Archived
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
-      action: "DELETED",
+      action: "ARCHIVED" as ActivityAction,
       module: "CASESTUDY",
       admin: adminEmail,
-      details: deletedData,
+      details: archivedData,
       req,
     });
 
-    console.log("🎉 ===== END DELETE CASE STUDY =====\n");
+    console.log("🎉 ===== END ARCHIVE CASE STUDY =====\n");
 
-    res.status(200).json({ message: "Case study deleted successfully", data: caseStudy });
+    res.status(200).json({ message: "Case study archived successfully", data: caseStudy });
   } catch (error) {
-    console.error("❌ DELETE ERROR:", error);
+    console.error("❌ ARCHIVE ERROR:", error);
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);
@@ -866,6 +874,81 @@ export const checkCaseStudyLikeStatus = async (req: Request, res: Response) => {
     if (error instanceof Error) {
       console.error("Error message:", error.message);
       console.error("Error stack:", error.stack);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Unknown error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+// ============================================
+// 🔄 RESTORE CASE STUDY (unarchive)
+// ============================================
+
+export const restoreCaseStudy = async (req: Request, res: Response) => {
+  console.log("\n🔄 ===== RESTORE CASE STUDY =====");
+
+  const parsed = getParamSchema.safeParse(req.params);
+  if (!parsed.success) {
+    console.error("❌ Validation failed:", parsed.error);
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+  console.log("📋 Restoring case study with ID:", param.id);
+
+  try {
+    const existingCaseStudy = await CaseStudy.findById(param.id);
+    if (!existingCaseStudy) {
+      console.error("❌ Case study not found with ID:", param.id);
+      return res.status(404).json({ error: "Case study not found" });
+    }
+
+    // Check if case study is actually archived
+    if (!existingCaseStudy.isArchived) {
+      return res.status(400).json({ error: "Case study is not archived" });
+    }
+
+    console.log("✅ Found case study to restore:", existingCaseStudy.title);
+
+    // Store data for activity log
+    const restoredData = {
+      caseStudyId: existingCaseStudy._id.toString(),
+      title: existingCaseStudy.title,
+      slug: existingCaseStudy.slug,
+      status: existingCaseStudy.status,
+      tags: existingCaseStudy.tags,
+      author: existingCaseStudy.author,
+    };
+
+    const caseStudy = await CaseStudy.findByIdAndUpdate(
+      param.id,
+      { isArchived: false },
+      { new: true }
+    ).exec();
+
+    console.log("✅ Case study restored successfully!");
+
+    // 🟢 LOG ACTIVITY - Case Study Restored
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "RESTORED" as ActivityAction,
+      module: "CASESTUDY",
+      admin: adminEmail,
+      details: restoredData,
+      req,
+    });
+
+    console.log("🎉 ===== END RESTORE CASE STUDY =====\n");
+
+    res.status(200).json({ message: "Case study restored successfully", data: caseStudy });
+  } catch (error) {
+    console.error("❌ RESTORE ERROR:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
       res.status(400).json({ error: error.message });
     } else {
       console.error("Unknown error:", error);

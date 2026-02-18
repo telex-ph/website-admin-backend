@@ -11,7 +11,7 @@ import ActivityLog from "../activity-logs/Activitylog.ts";
 
 // Helper function to create activity log
 const createActivityLog = async (
-  action: "CREATED" | "UPDATED" | "DELETED",
+  action: "CREATED" | "UPDATED" | "DELETED" | "RESTORED",
   adminEmail: string,
   details: any,
   description?: string,
@@ -39,6 +39,8 @@ const createActivityLog = async (
       logData.updatedAt = timestamp;
     } else if (action === "DELETED") {
       logData.deletedAt = timestamp;
+    } else if (action === "RESTORED") {
+      logData.restoredAt = timestamp;
     }
 
     await ActivityLog.create(logData);
@@ -144,11 +146,11 @@ export const addUser = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching all users
+// Fetching all users (only non-archived)
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
-    // {} means all records or without a filter
-    const users = await User.find({}).exec();
+    // Return users where isArchived is not true (covers false, null, undefined, and missing field)
+    const users = await User.find({ isArchived: { $ne: true } }).exec();
     res.status(200).json(users);
   } catch (error: unknown) {
     if (error instanceof Error) {
@@ -156,6 +158,22 @@ export const getAllUsers = async (req: Request, res: Response) => {
       res.status(400).json({ error: error.message });
     } else {
       console.error("Users error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// Fetching all archived users
+export const getArchivedUsers = async (req: Request, res: Response) => {
+  try {
+    const users = await User.find({ isArchived: true }).exec();
+    res.status(200).json(users);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Fetching archived users error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Archived users error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -378,7 +396,7 @@ export const changePassword = async (req: Request, res: Response) => {
   }
 };
 
-export const deleteUser = async (req: Request, res: Response) => {
+export const archiveUser = async (req: Request, res: Response) => {
   // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
@@ -392,37 +410,113 @@ export const deleteUser = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
-    // Get the user before deletion for logging purposes
-    const userToDelete = await User.findById(param.id).exec();
-    
-    // Search for the id and delete
-    const user = await User.findByIdAndDelete(param.id).exec();
+    // Get the user before archiving for logging purposes
+    const userToArchive = await User.findById(param.id).exec();
+
+    if (!userToArchive) {
+      return res.status(404).json({
+        error: "User not found",
+        message: "User does not exist",
+      });
+    }
+
+    // Set isArchived to true instead of deleting
+    const user = await User.findByIdAndUpdate(
+      param.id,
+      { isArchived: true },
+      { new: true, runValidators: false } as any
+    ).exec();
 
     // Get admin email from JWT payload
     const adminEmail = (req as any).user?.email || "system";
 
     // Create activity log
-    if (userToDelete) {
-      await createActivityLog(
-        "DELETED",
-        adminEmail,
-        {
-          userId: userToDelete._id,
-          email: userToDelete.email,
-          firstName: userToDelete.firstName,
-          lastName: userToDelete.lastName,
-          department: userToDelete.department,
-          role: userToDelete.role,
-          name: `${userToDelete.firstName} ${userToDelete.lastName}`,
-        },
-        `Deleted account for ${userToDelete.firstName} ${userToDelete.lastName} (${userToDelete.email})`
-      );
-    }
+    await createActivityLog(
+      "DELETED",
+      adminEmail,
+      {
+        userId: userToArchive._id,
+        email: userToArchive.email,
+        firstName: userToArchive.firstName,
+        lastName: userToArchive.lastName,
+        department: userToArchive.department,
+        role: userToArchive.role,
+        name: `${userToArchive.firstName} ${userToArchive.lastName}`,
+      },
+      `Archived account for ${userToArchive.firstName} ${userToArchive.lastName} (${userToArchive.email})`
+    );
 
     res.status(200).json(user);
   } catch (error) {
     if (error instanceof Error) {
-      console.error("Deleting user error:", error.message);
+      console.error("Archiving user error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("User error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// Restore an archived user
+export const restoreUser = async (req: Request, res: Response) => {
+  const parsed = getParamSchema.safeParse(req.params);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request parameters do not match the expected schema",
+    });
+  }
+
+  const param: GetParamDto = parsed.data;
+
+  try {
+    const userToRestore = await User.findById(param.id).exec();
+
+    if (!userToRestore) {
+      return res.status(404).json({
+        error: "User not found",
+        message: "User does not exist",
+      });
+    }
+
+    if (!userToRestore.isArchived) {
+      return res.status(400).json({
+        error: "Bad request",
+        message: "User is not archived",
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      param.id,
+      { isArchived: false },
+      { new: true, runValidators: false } as any
+    ).exec();
+
+    // Get admin email from JWT payload
+    const adminEmail = (req as any).user?.email || "system";
+
+    // Create activity log
+    await createActivityLog(
+      "RESTORED",
+      adminEmail,
+      {
+        userId: userToRestore._id,
+        email: userToRestore.email,
+        firstName: userToRestore.firstName,
+        lastName: userToRestore.lastName,
+        department: userToRestore.department,
+        role: userToRestore.role,
+        name: `${userToRestore.firstName} ${userToRestore.lastName}`,
+      },
+      `Restored account for ${userToRestore.firstName} ${userToRestore.lastName} (${userToRestore.email})`
+    );
+
+    res.status(200).json(user);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Restoring user error:", error.message);
       res.status(400).json({ error: error.message });
     } else {
       console.error("User error:", error);

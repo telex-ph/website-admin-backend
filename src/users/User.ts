@@ -12,6 +12,7 @@ export interface IUser {
   role: number;
   password: string;
   darkMode: boolean;
+  isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -54,6 +55,10 @@ const userSchema = new Schema<IUser>(
       required: true,
     },
     darkMode: {
+      type: Boolean,
+      default: false,
+    },
+    isArchived: {
       type: Boolean,
       default: false,
     },
