@@ -184,6 +184,14 @@ export const addCaseStudy = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "At least one solution is required" });
     }
 
+    // Validate end date for non-draft statuses
+    const statusesRequiringEndDate = ['active', 'completed', 'scheduled'];
+    if (statusesRequiringEndDate.includes(parsedData.status) && !parsedData.isUnfinished && !parsedData.endDate) {
+      return res.status(400).json({
+        error: "An end date is required to set the status to Active, Completed, or Scheduled. Please provide an end date or mark the study as Unfinished.",
+      });
+    }
+
     // File uploading
     const file = req.file;
     if (!file?.buffer) {
@@ -550,6 +558,17 @@ export const updateCaseStudy = async (req: Request, res: Response) => {
     if (parsedData.isUnfinished !== undefined) updateData.isUnfinished = parsedData.isUnfinished;
     if (parsedData.scheduleDate !== undefined) updateData.scheduleDate = parsedData.scheduleDate;
     if (parsedData.scheduleTime !== undefined) updateData.scheduleTime = parsedData.scheduleTime;
+
+    // Validate end date for non-draft statuses (check both incoming and existing values)
+    const targetStatus = parsedData.status || existingCaseStudy.status;
+    const targetIsUnfinished = parsedData.isUnfinished !== undefined ? parsedData.isUnfinished : existingCaseStudy.isUnfinished;
+    const targetEndDate = parsedData.endDate !== undefined ? parsedData.endDate : existingCaseStudy.endDate;
+    const statusesRequiringEndDate = ['active', 'completed', 'scheduled'];
+    if (statusesRequiringEndDate.includes(targetStatus) && !targetIsUnfinished && !targetEndDate) {
+      return res.status(400).json({
+        error: "An end date is required to set the status to Active, Completed, or Scheduled. Please provide an end date or mark the study as Unfinished.",
+      });
+    }
 
     console.log("💾 Updating case study in database...");
     const caseStudy = await CaseStudy.findByIdAndUpdate(param.id, updateData, {

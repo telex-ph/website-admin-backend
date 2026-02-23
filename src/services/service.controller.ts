@@ -54,9 +54,12 @@ export const addService = async (req: Request, res: Response) => {
   } catch (error) {
     if (error instanceof Error) {
       console.error("Adding service error:", error.message);
-      res.status(400).json({ error: error.message });
+      // FIX: 400 is for client/validation errors only. Use 409 for duplicate key
+      // (e.g. serviceId already exists) and 500 for all other server-side failures.
+      const isDuplicate = error.message.includes("duplicate key") || error.message.includes("E11000");
+      res.status(isDuplicate ? 409 : 500).json({ error: error.message });
     } else {
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -94,13 +97,25 @@ export const getAllServices = async (req: Request, res: Response) => {
       sort.createdAt = -1;
     }
 
-    const services = await Service.find(filter).sort(sort).exec();
+    // FIX: allowDiskUse(true) lets MongoDB spill to disk when sorting large
+    // documents (e.g. services with base64 coverPhoto strings) that exceed the
+    // 32MB in-memory sort limit on Atlas free tier. The primary fix is the index
+    // added in Service.ts — the index means Mongo won't need to sort in memory at
+    // all for the default sort. allowDiskUse is a safety net for edge cases like
+    // ad-hoc sorts on un-indexed fields or very large result sets.
+    const services = await Service.find(filter).sort(sort).allowDiskUse(true).exec();
     res.status(200).json(services);
   } catch (error) {
     if (error instanceof Error) {
-      res.status(400).json({ error: error.message });
+      // FIX: was 400 — but a failed DB query is a server error (500), not a bad
+      // client request (400). Returning 400 here was the root cause of "Failed to
+      // fetch" on the frontend: when Mongoose threw (e.g. MongoNotConnectedError
+      // because the server accepted requests before the DB was ready), the catch
+      // block sent 400, which made response.ok === false → frontend threw the error.
+      console.error("getAllServices error:", error.message);
+      res.status(500).json({ error: error.message });
     } else {
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -127,7 +142,9 @@ export const getService = async (req: Request, res: Response) => {
     }
     res.status(200).json(service);
   } catch (error) {
-    res.status(400).json({ error: "Error fetching service" });
+    // FIX: was 400 — should be 500 for DB/server failures
+    console.error("getService error:", error);
+    res.status(500).json({ error: "Error fetching service" });
   }
 };
 
@@ -145,7 +162,9 @@ export const getServiceByServiceId = async (req: Request, res: Response) => {
     }
     res.status(200).json(service);
   } catch (error) {
-    res.status(400).json({ error: "Error fetching service by serviceId" });
+    // FIX: was 400 — should be 500 for DB/server failures
+    console.error("getServiceByServiceId error:", error);
+    res.status(500).json({ error: "Error fetching service by serviceId" });
   }
 };
 
@@ -215,9 +234,12 @@ export const updateService = async (req: Request, res: Response) => {
     res.status(200).json(updatedService);
   } catch (error) {
     if (error instanceof Error) {
-      res.status(400).json({ error: error.message });
+      // FIX: was 400 — validation errors are already handled above via Zod.
+      // Anything thrown here is a DB/server error → 500.
+      console.error("updateService error:", error.message);
+      res.status(500).json({ error: error.message });
     } else {
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -266,9 +288,11 @@ export const toggleServiceStatus = async (req: Request, res: Response) => {
     res.status(200).json(service);
   } catch (error) {
     if (error instanceof Error) {
-      res.status(400).json({ error: error.message });
+      // FIX: was 400 — should be 500 for DB/server failures
+      console.error("toggleServiceStatus error:", error.message);
+      res.status(500).json({ error: error.message });
     } else {
-      res.status(400).json({ error: "Unknown error occurred" });
+      res.status(500).json({ error: "Unknown error occurred" });
     }
   }
 };
@@ -298,7 +322,9 @@ export const deleteService = async (req: Request, res: Response) => {
 
     res.status(200).json({ message: "Service deleted successfully", data: service });
   } catch (error) {
-    res.status(400).json({
+    // FIX: was 400 — should be 500 for DB/server failures
+    console.error("deleteService error:", error);
+    res.status(500).json({
       error: error instanceof Error ? error.message : "Error deleting service",
     });
   }

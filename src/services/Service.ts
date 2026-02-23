@@ -26,5 +26,18 @@ const serviceSchema = new Schema<IService>(
   },
   { timestamps: true }
 );
- 
+
+// ============================================
+// 📊 INDEXES
+// ============================================
+// FIX: MongoDB Atlas free tier has a 32MB in-memory sort limit. Without indexes
+// on the fields we sort by, Mongo loads the entire collection into memory to sort
+// it — and if the documents are large (e.g. base64 coverPhoto strings), it blows
+// past the 32MB cap and throws:
+//   "Sort exceeded memory limit of 33554432 bytes, but did not opt in to external sorting."
+// Adding indexes on createdAt and name lets MongoDB use the index to satisfy the
+// sort order without loading everything into memory first.
+serviceSchema.index({ createdAt: -1 }); // default sort: newest first
+serviceSchema.index({ name: 1 });        // alpha sort support
+
 export default model<IService>("Service", serviceSchema);

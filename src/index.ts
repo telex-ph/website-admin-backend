@@ -15,6 +15,11 @@ import activityLogRouter from "./activity-logs/activity-log.router.ts";
 import serviceRouter from "./services/service.router.ts";
 
 // ============================================
+// 🌱 SEED IMPORTS
+// ============================================
+import { seedServices } from "./services/seed-services.ts";
+
+// ============================================
 // 🔐 MIDDLEWARE IMPORTS
 // ============================================
 // FIX: import must always be at the top of the file — never inside the body
@@ -22,15 +27,6 @@ import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
 
 const app = express();
 const port = 3000;
-
-// ============================================
-// 📊 MONGODB CONNECTION
-// ============================================
-const mongoUri: string = process.env.MONGO_URI || "";
-mongoose
-  .connect(mongoUri)
-  .then(() => console.log("✅ Connected to MongoDB"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
 
 // ============================================
 // 🔧 CORE MIDDLEWARE — MUST BE BEFORE ALL ROUTES
@@ -124,40 +120,69 @@ app.get("/", (req, res) => {
 });
 
 // ============================================
-// 🚀 START SERVER
+// 📊 MONGODB CONNECTION → START SERVER
 // ============================================
-app.listen(port, () => {
-  console.log(`🚀 Backend is running on http://localhost:${port}`);
-  console.log(`🌐 Frontend URL: http://localhost:3001`);
-  console.log(`✅ CORS + cookieParser ready`);
-  console.log(`\n📋 Public Routes:`);
-  console.log(`   - POST /api/auth/authenticate`);
-  console.log(`   - POST /api/auth/refresh`);
-  console.log(`   - POST /api/auth/logout`);
-  console.log(`   - GET  /api/casestudies (view all)`);
-  console.log(`   - GET  /api/casestudies/:id (view single)`);
-  console.log(`   - GET  /api/casestudies/fetch/:slug (view by slug)`);
-  console.log(`   - GET  /api/services (view all services)`);
-  console.log(`   - GET  /api/services/:id (view single service)`);
-  console.log(`   - GET  /api/services/fetch/:serviceId (view by serviceId)`);
-  console.log(`\n🔒 Protected Routes (require JWT):`);
-  console.log(`   - POST   /api/services (create service)`);
-  console.log(`   - PATCH  /api/services/:id/toggle (toggle service status)`);
-  console.log(`   - PATCH  /api/services/:id (update service)`);
-  console.log(`   - DELETE /api/services/:id (delete service)`);
-  console.log(`   - POST   /api/blogs (create blog)`);
-  console.log(`   - GET    /api/blogs (get all blogs)`);
-  console.log(`   - GET    /api/blogs/:id (get single blog)`);
-  console.log(`   - PATCH  /api/blogs/:id (update blog)`);
-  console.log(`   - DELETE /api/blogs/:id (delete blog)`);
-  console.log(`   - POST   /api/casestudies (create)`);
-  console.log(`   - PATCH  /api/casestudies/:id (update)`);
-  console.log(`   - DELETE /api/casestudies/:id (delete)`);
-  console.log(`   - GET    /api/activity-logs (get all logs)`);
-  console.log(`   - GET    /api/activity-logs/stats (get statistics)`);
-  console.log(`   - GET    /api/activity-logs/:id (get single log)`);
-  console.log(`   - GET    /api/activity-logs/admin/:email (get logs by admin)`);
-  console.log(`   - DELETE /api/activity-logs/cleanup (delete old logs)`);
-  console.log(`   - All /api/users routes`);
-  console.log(`   - All /api/dashboard routes`);
-});
+// FIX: app.listen is now INSIDE the .then() callback so the server only
+// accepts requests AFTER MongoDB is fully connected. Previously the server
+// started listening immediately (before the async connect resolved), so any
+// request that arrived during the connection window would call Service.find()
+// on an unconnected client → Mongoose threw MongoNotConnectedError → caught
+// by the controller's catch block → returned 400. Moving listen() here
+// guarantees MongoDB is ready before the first request is ever processed.
+
+const mongoUri: string = process.env.MONGO_URI || "";
+
+if (!mongoUri) {
+  console.error("❌ MONGO_URI environment variable is not set. Server will not start.");
+  process.exit(1);
+}
+
+mongoose
+  .connect(mongoUri)
+  .then(async () => {
+    console.log("✅ Connected to MongoDB");
+
+    // 🌱 Seed default services if the collection is empty
+    await seedServices();
+
+    // 🚀 Only start listening AFTER the DB is confirmed ready
+    app.listen(port, () => {
+      console.log(`🚀 Backend is running on http://localhost:${port}`);
+      console.log(`🌐 Frontend URL: http://localhost:3001`);
+      console.log(`✅ CORS + cookieParser ready`);
+      console.log(`\n📋 Public Routes:`);
+      console.log(`   - POST /api/auth/authenticate`);
+      console.log(`   - POST /api/auth/refresh`);
+      console.log(`   - POST /api/auth/logout`);
+      console.log(`   - GET  /api/casestudies (view all)`);
+      console.log(`   - GET  /api/casestudies/:id (view single)`);
+      console.log(`   - GET  /api/casestudies/fetch/:slug (view by slug)`);
+      console.log(`   - GET  /api/services (view all services)`);
+      console.log(`   - GET  /api/services/:id (view single service)`);
+      console.log(`   - GET  /api/services/fetch/:serviceId (view by serviceId)`);
+      console.log(`\n🔒 Protected Routes (require JWT):`);
+      console.log(`   - POST   /api/services (create service)`);
+      console.log(`   - PATCH  /api/services/:id/toggle (toggle service status)`);
+      console.log(`   - PATCH  /api/services/:id (update service)`);
+      console.log(`   - DELETE /api/services/:id (delete service)`);
+      console.log(`   - POST   /api/blogs (create blog)`);
+      console.log(`   - GET    /api/blogs (get all blogs)`);
+      console.log(`   - GET    /api/blogs/:id (get single blog)`);
+      console.log(`   - PATCH  /api/blogs/:id (update blog)`);
+      console.log(`   - DELETE /api/blogs/:id (delete blog)`);
+      console.log(`   - POST   /api/casestudies (create)`);
+      console.log(`   - PATCH  /api/casestudies/:id (update)`);
+      console.log(`   - DELETE /api/casestudies/:id (delete)`);
+      console.log(`   - GET    /api/activity-logs (get all logs)`);
+      console.log(`   - GET    /api/activity-logs/stats (get statistics)`);
+      console.log(`   - GET    /api/activity-logs/:id (get single log)`);
+      console.log(`   - GET    /api/activity-logs/admin/:email (get logs by admin)`);
+      console.log(`   - DELETE /api/activity-logs/cleanup (delete old logs)`);
+      console.log(`   - All /api/users routes`);
+      console.log(`   - All /api/dashboard routes`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB connection error:", err);
+    process.exit(1);
+  });
