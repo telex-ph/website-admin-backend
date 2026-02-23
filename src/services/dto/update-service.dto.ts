@@ -9,11 +9,12 @@ export const updateServiceSchema = z
     isActive: z.boolean().optional(),
     // ✅ FIX: accept string, null, or undefined — always preserved in parsed output when key is present
     coverPhoto: z.string().nullable().optional(),
+    inactivePhoto: z.string().nullable().optional(),
   })
   .refine(
     (data) => {
-      const { coverPhoto, ...rest } = data;
-      // At least one "real" field must be provided (coverPhoto alone is allowed too)
+      const { coverPhoto, inactivePhoto, ...rest } = data;
+      // At least one "real" field must be provided (coverPhoto/inactivePhoto alone is allowed too)
       return Object.keys(data).length > 0;
     },
     { message: "At least one field must be provided" }

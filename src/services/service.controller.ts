@@ -32,6 +32,7 @@ export const addService = async (req: Request, res: Response) => {
       badge: body.badge,
       isActive: body.isActive !== undefined ? body.isActive : false,
       coverPhoto: body.coverPhoto ?? null,
+      inactivePhoto: body.inactivePhoto ?? null,
     } as any;
  
     const service = await Service.create(newService);
@@ -190,6 +191,7 @@ export const updateService = async (req: Request, res: Response) => {
     // coverPhoto: null explicitly. With !== undefined, null is correctly treated as
     // "clear the photo" and the field is properly included in the update.
     if (body.coverPhoto !== undefined) updateData.coverPhoto = (body.coverPhoto ?? null) as any;
+    if (body.inactivePhoto !== undefined) updateData.inactivePhoto = (body.inactivePhoto ?? null) as any;
 
     const updatedService = await Service.findByIdAndUpdate(id, updateData, {
       new: true,
