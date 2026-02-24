@@ -32,25 +32,14 @@ export const verifyJwt = async (
     }
   }
 
-  console.log('🔐 Auth check:', {
-    hasTokenInCookie: !!req.cookies.accessToken,
-    hasTokenInHeader: !!req.headers.authorization,
-    finalToken: !!accessToken,
-    cookieNames: Object.keys(req.cookies),
-  });
-
   try {
     if (accessToken) {
       const publicKey = await jose.importSPKI(publicPEM, "RS256");
       const { payload } = await jose.jwtVerify(accessToken, publicKey);
 
       req.user = payload;
-      console.log("✅ JWT verified for user:", payload);
       return next();
     } else {
-      console.log("❌ No access token in cookies or Authorization header");
-      
-      // Clear any existing invalid cookies
       res.clearCookie('accessToken', {
         httpOnly: true,
         secure: isProduction,
@@ -58,7 +47,6 @@ export const verifyJwt = async (
         path: '/'
       });
       
-      // Return 401 Unauthorized
       return res.status(401).json({
         success: false,
         message: "No access token provided. Please login.",
@@ -66,9 +54,6 @@ export const verifyJwt = async (
       });
     }
   } catch (error) {
-    console.error("❌ JWT verification error:", error);
-    
-    // Clear the invalid/expired cookie
     res.clearCookie('accessToken', {
       httpOnly: true,
       secure: isProduction,
@@ -96,7 +81,6 @@ export const optionalAuth = async (
 ) => {
   const publicPEM = process.env.PUBLIC_KEY;
   if (!publicPEM) {
-    console.warn("⚠️ Public key is not configured");
     return next();
   }
 
@@ -111,7 +95,6 @@ export const optionalAuth = async (
   }
 
   if (!accessToken) {
-    console.log("📖 Public access - no token provided");
     return next();
   }
 
@@ -120,11 +103,8 @@ export const optionalAuth = async (
     const { payload } = await jose.jwtVerify(accessToken, publicKey);
 
     req.user = payload;
-    console.log("🔓 Authenticated access - user:", payload);
     return next();
   } catch (error) {
-    console.warn("⚠️ Invalid token, clearing and continuing as public:", error);
-    
     res.clearCookie('accessToken', {
       httpOnly: true,
       secure: isProduction,
