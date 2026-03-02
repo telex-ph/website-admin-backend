@@ -13,6 +13,7 @@ import caseStudyRouter from "./casestudy/casestudy.router.ts";
 import dashboardRouter from "./dashboard/dashboard.router.ts";
 import activityLogRouter from "./activity-logs/activity-log.router.ts";
 import serviceRouter from "./services/service.router.ts";
+import clientRouter from "./client/client.router.ts";
 
 // ============================================
 // 🌱 SEED IMPORTS
@@ -70,6 +71,9 @@ app.use("/api/dashboard", verifyJwt, dashboardRouter);
 app.use("/activity-logs", verifyJwt, activityLogRouter);
 app.use("/api/activity-logs", verifyJwt, activityLogRouter);
 
+app.use("/clients", verifyJwt, clientRouter);
+app.use("/api/clients", verifyJwt, clientRouter);
+
 // ============================================
 // ℹ️ HEALTH CHECK ENDPOINT
 // ============================================
@@ -91,6 +95,7 @@ app.get("/", (req, res) => {
         services_manage: "/api/services (POST/PATCH/DELETE)",
         dashboard: ["/dashboard", "/api/dashboard"],
         activity_logs: ["/activity-logs", "/api/activity-logs"],
+        clients: ["/clients", "/api/clients"],
       },
     },
   });
