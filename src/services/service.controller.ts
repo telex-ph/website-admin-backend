@@ -137,18 +137,16 @@ export const getAllServices = async (req: Request, res: Response) => {
     }
 
     // FIX: allowDiskUse(true) lets MongoDB spill to disk when sorting large
-    // documents (e.g. services with base64 coverPhoto strings) that exceed the
-    // 32MB in-memory sort limit on Atlas free tier. The primary fix is the index
-    // added in Service.ts — the index means Mongo won't need to sort in memory at
-    // all for the default sort. allowDiskUse is a safety net for edge cases like
-    // ad-hoc sorts on un-indexed fields or very large result sets.
+    // documents that exceed the 32MB in-memory sort limit on Atlas free tier.
+    // The primary fix is the index added in Service.ts — the index means Mongo
+    // won't need to sort in memory at all for the default sort. allowDiskUse is
+    // a safety net for edge cases like ad-hoc sorts on un-indexed fields or very
+    // large result sets.
     //
-    // FIX: Exclude coverPhoto and inactivePhoto from the list query.
-    // These fields can be large (Cloudinary URLs or base64 strings) and are not
-    // needed by the list view. They are fetched individually via getService when
-    // editing. This significantly reduces payload size and speeds up the response.
+    // NOTE: coverPhoto and inactivePhoto are now included in the list query
+    // because they are Cloudinary URLs (short strings), not base64 blobs.
+    // The frontend ServicesGrid needs these fields to display service images.
     const services = await Service.find(filter)
-      .select("-coverPhoto -inactivePhoto")
       .sort(sort)
       .allowDiskUse(true)
       .exec();

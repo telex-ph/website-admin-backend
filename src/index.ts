@@ -14,6 +14,7 @@ import dashboardRouter from "./dashboard/dashboard.router.ts";
 import activityLogRouter from "./activity-logs/activity-log.router.ts";
 import serviceRouter from "./services/service.router.ts";
 import clientRouter from "./client/client.router.ts";
+import appointmentRouter from "./appointments/appointment.router.ts";
 
 // ============================================
 // 🌱 SEED IMPORTS
@@ -56,6 +57,11 @@ app.use("/casestudies", caseStudyRouter);
 app.use("/api/services", serviceRouter);
 app.use("/services", serviceRouter);
 
+// 📅 GHL Appointments — public (fetch slots + book)
+// Calendars list, free slots, and booking are public so website visitors can book
+app.use("/appointments", appointmentRouter);
+app.use("/api/appointments", appointmentRouter);
+
 // ============================================
 // 🔒 PROTECTED ROUTES (JWT REQUIRED)
 // ============================================
@@ -87,6 +93,11 @@ app.get("/", (req, res) => {
         auth: ["/auth", "/api/auth"],
         casestudies_view: "/api/casestudies (GET)",
         services_view: "/api/services (GET)",
+        appointments: {
+          calendars: "/api/appointments/calendars (GET)",
+          free_slots: "/api/appointments/slots?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&timezone=Asia/Manila (GET)",
+          book: "/api/appointments (POST)",
+        },
       },
       protected: {
         users: ["/users", "/api/users"],
@@ -96,6 +107,7 @@ app.get("/", (req, res) => {
         dashboard: ["/dashboard", "/api/dashboard"],
         activity_logs: ["/activity-logs", "/api/activity-logs"],
         clients: ["/clients", "/api/clients"],
+        appointments_manage: "/api/appointments/:appointmentId (GET/PUT/DELETE)",
       },
     },
   });
