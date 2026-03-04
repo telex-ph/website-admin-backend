@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import User from "../users/User.ts";
+import Client from "../client/Client.ts";
 import * as jose from "jose";
 import bcrypt from "bcrypt";
 import {
@@ -93,6 +94,80 @@ export const authenticate = async (req: Request, res: Response) => {
       res.status(400).json({ error: error.message });
     } else {
       console.error("Authentication error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+// ============================================
+// 👤 CLIENT AUTHENTICATE
+// POST /auth/client/authenticate
+// ============================================
+export const authenticateClient = async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  try {
+    if (!email) throw new Error("Email is required");
+    if (!password) throw new Error("Password is required");
+
+    // Find client by email
+    const client = await Client.findOne({ email }).exec();
+
+    if (!client) throw new Error("Invalid credentials");
+
+    // Compare hashed password
+    const isMatch = await bcrypt.compare(password, client.password);
+    if (!isMatch) throw new Error("Invalid credentials");
+
+    // Check if client is archived
+    if (client.isArchived) throw new Error("Account is deactivated. Please contact the administrator.");
+
+    // Role 0 = client
+    const accessToken = await createAccessToken({
+      id: client._id.toString(),
+      email: client.email,
+      role: 0,
+    });
+    const refreshToken = await createRefreshToken({
+      id: client._id.toString(),
+      email: client.email,
+      role: 0,
+    });
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
+      path: "/",
+    };
+
+    res.cookie("accessToken", accessToken, {
+      ...cookieOptions,
+      maxAge: ACCESS_TOKEN_EXPIRATION_MS,
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+      ...cookieOptions,
+      maxAge: REFRESH_TOKEN_EXPIRATION_MS,
+    });
+
+    console.log('✅ Client login successful:', email);
+
+    res.status(200).json({
+      message: "Successfully authenticated",
+      client: {
+        id: client._id.toString(),
+        email: client.email,
+        firstName: client.firstName,
+        lastName: client.lastName,
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Client authentication error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("Client authentication error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }

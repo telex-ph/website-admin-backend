@@ -88,6 +88,8 @@ export const addClient = async (req: Request, res: Response) => {
   }
 
   const client: CreateClientDto = parsed.data;
+  // ✅ Hash explicitly — NO pre-save hook on Client model.
+  // hashedPassword is stored in the DB; the raw password is never persisted.
   const hashedPassword = await bcrypt.hash(client.password, 10);
 
   try {
@@ -288,6 +290,7 @@ export const changeClientPassword = async (req: Request, res: Response) => {
       });
     }
 
+    // ✅ Hash explicitly before update — findByIdAndUpdate bypasses Mongoose hooks.
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await Client.findByIdAndUpdate(
       parsed.data.id,

@@ -51,6 +51,10 @@ const clientSchema = new Schema<IClient>(
   }
 );
 
+// ✅ NO pre-save hook for password hashing.
+// Hashing is done explicitly in each controller before calling Client.create()
+// or Client.findByIdAndUpdate(), so there is zero ambiguity about when/if hashing runs.
+
 const Client =
   (models.Client as mongoose.Model<IClient>) ||
   model<IClient>("Client", clientSchema);

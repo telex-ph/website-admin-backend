@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, logout, refresh } from "./auth.controller.ts";
+import { authenticate, authenticateClient, logout, refresh } from "./auth.controller.ts";
 // Import ang verifyJwt middleware mula sa middlewares folder
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
 
@@ -8,6 +8,9 @@ const router = Router();
 // Public routes: Pwedeng ma-access kahit hindi naka-login
 router.post("/authenticate", authenticate);
 router.post("/refresh", refresh);
+
+// 👤 Client login route
+router.post("/client/authenticate", authenticateClient);
 
 // Protected route: Kailangan ng valid token para makapag-logout
 // Kapag tinangka itong i-access manually o via script nang walang token, 
