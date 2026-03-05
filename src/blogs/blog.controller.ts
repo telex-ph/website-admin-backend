@@ -11,7 +11,7 @@ import { Types } from "mongoose";
 import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
 import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.ts";
-
+import mongoose from "mongoose";
 // ============================================
 // 📋 ACTIVITY LOG HELPERS
 // ============================================
@@ -37,7 +37,6 @@ const buildBlogChanges = (
     if (!(field in BLOG_FIELD_LABELS)) continue;
     const oldVal = oldData[field] ?? null;
     const newVal = newData[field] ?? null;
-    // Only include if value actually changed
     if (String(oldVal) === String(newVal)) continue;
     changes.push({
       field,
@@ -63,7 +62,6 @@ const autoPublishScheduledBlogs = async () => {
   try {
     const now = new Date();
     
-    // Find all blogs with status "scheduled" and scheduledDate that has passed
     const scheduledBlogs = await Blog.find({
       status: "scheduled",
       scheduledDate: { $lte: now }
@@ -74,7 +72,6 @@ const autoPublishScheduledBlogs = async () => {
       
       for (const blog of scheduledBlogs) {
         try {
-          // Update status to published
           blog.status = "published";
           await blog.save();
           
@@ -92,12 +89,12 @@ const autoPublishScheduledBlogs = async () => {
 };
 
 
-// Adding blog
+// ============================================
+// ➕ ADD BLOG (Admin Panel - with file upload)
+// ============================================
 export const addBlog = async (req: Request, res: Response) => {
-  // --- PRE-VALIDATION LOGIC PARA SA FORMDATA ---
   let bodyToValidate = { ...req.body };
 
-  // 1. FIX: I-parse ang mainContent pabalik sa Array (kasi stringified ito sa FormData)
   if (typeof bodyToValidate.mainContent === 'string') {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
@@ -106,12 +103,10 @@ export const addBlog = async (req: Request, res: Response) => {
     }
   }
 
-  // 2. FIX: I-handle ang empty strings mula sa FormData para sa optional/nullable fields
   if (bodyToValidate.scheduledDate === "" || bodyToValidate.scheduledDate === "null" || bodyToValidate.scheduledDate === "undefined") {
     bodyToValidate.scheduledDate = undefined;
   }
 
-  // Validate the body gamit ang nilinis na data
   const parsedBody = createBlogSchema.safeParse(bodyToValidate);
 
   if (!parsedBody.success) {
@@ -125,14 +120,12 @@ export const addBlog = async (req: Request, res: Response) => {
   const body: CreateBlogDto = parsedBody.data;
 
   try {
-    // 3. HANDLE IMAGE UPLOAD (required for new blog)
     if (!req.file) {
       return res.status(400).json({ error: "Picture is required" });
     }
 
     const result = await uploadFile(req.file);
     
-    // Handle different return types from uploadFile
     let pictureUrl: string;
     if (typeof result === 'string') {
       pictureUrl = result;
@@ -152,7 +145,6 @@ export const addBlog = async (req: Request, res: Response) => {
 
     console.log("✅ Picture URL obtained:", pictureUrl);
 
-    // Create blog with uploaded picture
     const newBlog: Partial<IBlog> = {
       ...body,
       slug: toSlug(body.title),
@@ -165,7 +157,6 @@ export const addBlog = async (req: Request, res: Response) => {
 
     const blog = await Blog.create(newBlog);
 
-    // 🔴 LOG ACTIVITY - Blog Created
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "CREATED",
@@ -196,24 +187,104 @@ export const addBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching all blogs with filtering and search
+
+// ============================================
+// 🤖 AI PLATFORM PUBLISH (JSON - no file upload)
+// ============================================
+export const aiPublishBlog = async (req: Request, res: Response) => {
+  let bodyToValidate = { ...req.body };
+
+  // Parse mainContent if stringified
+  if (typeof bodyToValidate.mainContent === 'string') {
+    try {
+      bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
+    } catch (e) {
+      return res.status(400).json({ error: "Invalid format for mainContent" });
+    }
+  }
+
+  // Clean up scheduledDate
+  if (
+    bodyToValidate.scheduledDate === "" ||
+    bodyToValidate.scheduledDate === "null" ||
+    bodyToValidate.scheduledDate === "undefined"
+  ) {
+    bodyToValidate.scheduledDate = undefined;
+  }
+
+  const parsedBody = createBlogSchema.safeParse(bodyToValidate);
+  if (!parsedBody.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request body does not match the expected schema",
+      details: parsedBody.error.issues,
+    });
+  }
+
+  const body: CreateBlogDto = parsedBody.data;
+
+  try {
+    // Use pictureUrl from JSON body, fallback to default Cloudinary image
+    const pictureUrl: string =
+      req.body.pictureUrl ||
+      "https://res.cloudinary.com/dyhytmzqk/image/upload/v1/telexph/blog-default.jpg";
+
+    const newBlog = {
+      ...body,
+      slug: toSlug(body.title),
+      picture: pictureUrl,
+      scheduledDate: body.scheduledDate ? new Date(body.scheduledDate) : undefined,
+      likeCount: 0,
+      likedBy: [],
+      isArchive: false,
+    };
+
+    const blog = await Blog.create(newBlog as any) as IBlog & { _id: mongoose.Types.ObjectId };
+
+    const adminEmail = getUserEmailFromRequest(req);
+    await logActivity({
+      action: "CREATED",
+      module: "BLOGS",
+      admin: adminEmail || "AI Platform",
+      details: {
+        blogId: blog._id.toString(),
+        title: blog.title,
+        slug: blog.slug,
+        status: blog.status,
+        mainCategory: blog.mainCategory,
+        subcategory: blog.subcategory,
+        author: blog.author,
+        description: `[AI Platform] Created blog post "${blog.title}"`,
+      },
+      req,
+    });
+
+    res.status(201).json(blog);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("AI Publish blog error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("AI Publish error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+
+// ============================================
+// 📋 GET ALL BLOGS
+// ============================================
 export const getAllBlogs = async (req: Request, res: Response) => {
   try {
-    // 📅 AUTO-PUBLISH SCHEDULED BLOGS
-    // Check and automatically publish any scheduled blogs that have reached their scheduled date
     await autoPublishScheduledBlogs();
 
-    // Extract query parameters for filtering
     const { search, mainCategory, subcategory, status, author, sortBy, order, includeArchived } = req.query;
 
-    // Build dynamic filter object
-    // If includeArchived=true, show ONLY archived blogs (for the archive management page)
-    // Otherwise only show non-archived blogs
     const filter: any = includeArchived === "true"
       ? { isArchive: true }
       : { isArchive: { $ne: true } };
 
-    // Search in title, short description, and main content
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: "i" } },
@@ -223,37 +294,19 @@ export const getAllBlogs = async (req: Request, res: Response) => {
       ];
     }
 
-    // Filter by main category
-    if (mainCategory) {
-      filter.mainCategory = mainCategory;
-    }
+    if (mainCategory) filter.mainCategory = mainCategory;
+    if (subcategory) filter.subcategory = subcategory;
+    if (status) filter.status = status;
+    if (author) filter.author = author;
 
-    // Filter by subcategory
-    if (subcategory) {
-      filter.subcategory = subcategory;
-    }
-
-    // Filter by status
-    if (status) {
-      filter.status = status;
-    }
-
-    // Filter by author
-    if (author) {
-      filter.author = author;
-    }
-
-    // Build sort object
     const sort: any = {};
     if (sortBy) {
       sort[sortBy as string] = order === "desc" ? -1 : 1;
     } else {
-      sort.createdAt = -1; // Default sort by newest
+      sort.createdAt = -1;
     }
 
-    const blogs = await Blog.find(filter)
-      .sort(sort)
-      .exec();
+    const blogs = await Blog.find(filter).sort(sort).exec();
 
     res.status(200).json(blogs);
   } catch (error: unknown) {
@@ -267,14 +320,15 @@ export const getAllBlogs = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching single blog by ID with view tracking
+
+// ============================================
+// 📖 GET SINGLE BLOG BY ID
+// ============================================
 export const getBlog = async (req: Request, res: Response) => {
   console.log("\n📖 ===== GET BLOG =====");
   
-  // 📅 AUTO-PUBLISH SCHEDULED BLOGS
   await autoPublishScheduledBlogs();
 
-  // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -289,7 +343,6 @@ export const getBlog = async (req: Request, res: Response) => {
   console.log("📋 Fetching blog with ID:", param.id);
 
   try {
-    // Search for the id
     const blog = await Blog.findById(param.id).exec();
 
     if (!blog) {
@@ -299,7 +352,6 @@ export const getBlog = async (req: Request, res: Response) => {
 
     console.log("✅ Found blog:", blog.title);
 
-    // 👁️ Track view - UPDATED TO USE CORRECT SIGNATURE
     try {
       await trackView({
         resourceType: 'blog',
@@ -309,7 +361,6 @@ export const getBlog = async (req: Request, res: Response) => {
       console.log("✅ View tracked successfully");
     } catch (viewError) {
       console.error("⚠️ Error tracking view (non-critical):", viewError instanceof Error ? viewError.message : viewError);
-      // Don't fail the request if view tracking fails
     }
 
     console.log("🎉 ===== END GET BLOG =====\n");
@@ -318,21 +369,20 @@ export const getBlog = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("❌ GET BLOG ERROR:", error);
     if (error instanceof Error) {
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
 };
 
-// Fetching blog by slug with view tracking
+
+// ============================================
+// 🔍 GET BLOG BY SLUG
+// ============================================
 export const getBlogBySlug = async (req: Request, res: Response) => {
   console.log("\n🔍 ===== FETCH BLOG BY SLUG =====");
   
-  // 📅 AUTO-PUBLISH SCHEDULED BLOGS
   await autoPublishScheduledBlogs();
 
   try {
@@ -343,7 +393,6 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Slug parameter is required" });
     }
 
-    // Search for blog by slug
     const blog = await Blog.findOne({ slug }).exec();
 
     if (!blog) {
@@ -353,7 +402,6 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
 
     console.log("✅ Found blog:", blog.title);
 
-    // 👁️ Track view - UPDATED TO USE CORRECT SIGNATURE
     try {
       await trackView({
         resourceType: 'blog',
@@ -363,7 +411,6 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
       console.log("✅ View tracked successfully");
     } catch (viewError) {
       console.error("⚠️ Error tracking view (non-critical):", viewError instanceof Error ? viewError.message : viewError);
-      // Don't fail the request if view tracking fails
     }
 
     console.log("🎉 ===== END FETCH BLOG BY SLUG =====\n");
@@ -372,17 +419,17 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("❌ FETCH BY SLUG ERROR:", error);
     if (error instanceof Error) {
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
 };
 
-// Updating blog
+
+// ============================================
+// 🔄 UPDATE BLOG
+// ============================================
 export const updateBlog = async (req: Request, res: Response) => {
   console.log("🔄 ========== UPDATE BLOG REQUEST ==========");
   console.log("📥 Request body:", JSON.stringify(req.body, null, 2));
@@ -395,12 +442,10 @@ export const updateBlog = async (req: Request, res: Response) => {
     });
   }
 
-  // --- PRE-VALIDATION LOGIC PARA SA FORMDATA ---
   let bodyToValidate = { ...req.body };
 
   console.log("🔍 RAW body before parsing:", bodyToValidate);
 
-  // 1. FIX: I-parse ang mainContent pabalik sa Array (kasi stringified ito sa FormData)
   if (typeof bodyToValidate.mainContent === 'string') {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
@@ -410,16 +455,13 @@ export const updateBlog = async (req: Request, res: Response) => {
     }
   }
 
-  // 2. FIX: I-handle ang empty strings mula sa FormData para sa optional/nullable fields
-  // ⚠️ IMPORTANT: Explicitly handle scheduled date removal
   if (bodyToValidate.scheduledDate === "" || bodyToValidate.scheduledDate === "null" || bodyToValidate.scheduledDate === "undefined") {
-    bodyToValidate.scheduledDate = null; // Explicitly set to null to trigger removal
+    bodyToValidate.scheduledDate = null;
     console.log("🗑️  ScheduledDate set to null (will be removed)");
   }
 
   console.log("🔍 Body after preprocessing:", JSON.stringify(bodyToValidate, null, 2));
 
-  // Validate the body gamit ang nilinis na data
   const parsedBody = updateBlogSchema.safeParse(bodyToValidate);
 
   if (!parsedBody.success) {
@@ -434,7 +476,6 @@ export const updateBlog = async (req: Request, res: Response) => {
   const body: UpdateBlogDto = parsedBody.data;
   console.log("✅ Validated body:", JSON.stringify(body, null, 2));
 
-  // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -448,7 +489,6 @@ export const updateBlog = async (req: Request, res: Response) => {
   console.log("📋 Updating blog with ID:", param.id);
 
   try {
-    // Get existing blog FIRST para ma-compare natin ang data
     const existingBlog = await Blog.findById(param.id).exec();
     if (!existingBlog) {
       return res.status(404).json({ error: "Blog not found" });
@@ -460,7 +500,6 @@ export const updateBlog = async (req: Request, res: Response) => {
     console.log("   - Status:", existingBlog.status);
     console.log("   - ScheduledDate:", existingBlog.scheduledDate);
 
-    // Store old data for activity log
     const oldData = {
       title: existingBlog.title,
       slug: existingBlog.slug,
@@ -472,7 +511,6 @@ export const updateBlog = async (req: Request, res: Response) => {
       picture: existingBlog.picture,
     };
 
-    // 3. HANDLE IMAGE UPLOAD (optional for update)
     let pictureUrl: string | undefined;
     let hasPictureUpdate = false;
 
@@ -480,7 +518,6 @@ export const updateBlog = async (req: Request, res: Response) => {
       console.log("🖼️  New file detected, uploading...");
       const result = await uploadFile(req.file);
       
-      // Handle different return types from uploadFile
       if (typeof result === 'string') {
         pictureUrl = result;
       } else if (result && typeof result === 'object' && 'url' in result) {
@@ -501,10 +538,8 @@ export const updateBlog = async (req: Request, res: Response) => {
       hasPictureUpdate = true;
     }
 
-    // Build update object
     const updateData: Partial<IBlog> = {} as any;
 
-    // Only add fields that are provided in the request
     if (body.title !== undefined) updateData.title = body.title;
     if (body.author !== undefined) updateData.author = body.author;
     if (body.mainCategory !== undefined) updateData.mainCategory = body.mainCategory;
@@ -517,38 +552,31 @@ export const updateBlog = async (req: Request, res: Response) => {
     console.log("🔍 UpdateData mainCategory:", updateData.mainCategory);
     console.log("🔍 UpdateData subcategory:", updateData.subcategory);
     
-    // If title is being updated, regenerate slug
     if (body.title) {
       updateData.slug = toSlug(body.title);
     }
     
-    // ✅ FIX: Always update picture if there's a new upload
     if (hasPictureUpdate) {
       updateData.picture = pictureUrl!;
       console.log("🖼️  ========== PICTURE UPDATE ==========");
       console.log("🖼️  Old picture:", existingBlog.picture);
       console.log("🖼️  New picture:", pictureUrl);
-      console.log("🖼️  Pictures are different?:", existingBlog.picture !== pictureUrl);
     } else {
       console.log("🖼️  Picture remains unchanged:", existingBlog.picture);
     }
 
     console.log("📝 Final update data:", JSON.stringify(updateData, null, 2));
 
-    // Convert scheduledDate string to Date if present, or explicitly set to undefined if null
     if (updateData.scheduledDate !== undefined) {
       if (updateData.scheduledDate === null) {
-        // Explicitly remove scheduledDate from the document
         delete (updateData as any).scheduledDate;
         console.log("🗑️  Removing scheduledDate (set to undefined)");
       } else {
-        // Convert string to Date object
         updateData.scheduledDate = new Date(updateData.scheduledDate);
         console.log("📅 Updated scheduledDate:", updateData.scheduledDate);
       }
     }
 
-    // Search for the id and update
     const blog = await Blog.findByIdAndUpdate(param.id, updateData, {
       new: true,
       runValidators: true,
@@ -560,12 +588,7 @@ export const updateBlog = async (req: Request, res: Response) => {
 
     console.log("✅ ========== UPDATE COMPLETE ==========");
     console.log("✅ Blog updated successfully!");
-    console.log("📊 Final blog state:");
-    console.log("   - Title:", blog.title);
-    console.log("   - Picture:", blog.picture);
-    console.log("   - Status:", blog.status);
 
-    // 🔴 LOG ACTIVITY - Blog Updated
     const adminEmail = getUserEmailFromRequest(req);
     const newData = {
       title: blog.title,
@@ -617,9 +640,11 @@ export const updateBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Archiving blog (soft delete)
+
+// ============================================
+// 🗄️ ARCHIVE BLOG (soft delete)
+// ============================================
 export const archiveBlog = async (req: Request, res: Response) => {
-  // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -632,18 +657,15 @@ export const archiveBlog = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
-    // Get existing blog for activity log before archiving
     const existingBlog = await Blog.findById(param.id).exec();
     if (!existingBlog) {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Check if blog is already archived
     if (existingBlog.isArchive) {
       return res.status(400).json({ error: "Blog is already archived" });
     }
 
-    // Set isArchive to true instead of deleting
     const blog = await Blog.findByIdAndUpdate(
       param.id,
       { isArchive: true },
@@ -654,7 +676,6 @@ export const archiveBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // 🔴 LOG ACTIVITY - Blog Archived
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "DELETED",
@@ -686,11 +707,10 @@ export const archiveBlog = async (req: Request, res: Response) => {
   }
 };
 
-// ============================================
-// 🆕 LIKE/UNLIKE FUNCTIONALITY
-// ============================================
 
-// Like a blog
+// ============================================
+// 🆕 LIKE / UNLIKE FUNCTIONALITY
+// ============================================
 export const likeBlog = async (req: Request, res: Response) => {
   try {
     const blogId = req.params.id;
@@ -701,7 +721,6 @@ export const likeBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Blog not found" });
     }
 
-    // Check if user already liked this blog
     if (blog.likedBy.includes(userIdentifier)) {
       return res.status(400).json({ 
         message: "You have already liked this blog",
@@ -710,7 +729,6 @@ export const likeBlog = async (req: Request, res: Response) => {
       });
     }
 
-    // Add like
     blog.likeCount += 1;
     blog.likedBy.push(userIdentifier);
     await blog.save();
@@ -725,7 +743,6 @@ export const likeBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Unlike a blog
 export const unlikeBlog = async (req: Request, res: Response) => {
   try {
     const blogId = req.params.id;
@@ -736,7 +753,6 @@ export const unlikeBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Blog not found" });
     }
 
-    // Check if user has liked this blog
     if (!blog.likedBy.includes(userIdentifier)) {
       return res.status(400).json({ 
         message: "You haven't liked this blog yet",
@@ -745,7 +761,6 @@ export const unlikeBlog = async (req: Request, res: Response) => {
       });
     }
 
-    // Remove like
     blog.likeCount -= 1;
     blog.likedBy = blog.likedBy.filter(id => id !== userIdentifier);
     await blog.save();
@@ -760,7 +775,6 @@ export const unlikeBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Check if user has liked a blog
 export const checkLikeStatus = async (req: Request, res: Response) => {
   try {
     const blogId = req.params.id;
@@ -781,10 +795,11 @@ export const checkLikeStatus = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+
 // ============================================
 // 🔄 RESTORE BLOG (unarchive)
 // ============================================
-
 export const restoreBlog = async (req: Request, res: Response) => {
   const parsed = getParamSchema.safeParse(req.params);
 
@@ -803,12 +818,10 @@ export const restoreBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Check if blog is actually archived
     if (!existingBlog.isArchive) {
       return res.status(400).json({ error: "Blog is not archived" });
     }
 
-    // Set isArchive to false to restore
     const blog = await Blog.findByIdAndUpdate(
       param.id,
       { isArchive: false },
@@ -819,7 +832,6 @@ export const restoreBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // 🟢 LOG ACTIVITY - Blog Restored
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "RESTORED" as ActivityAction,
