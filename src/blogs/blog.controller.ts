@@ -227,12 +227,31 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
 
   const parsedBody = createBlogSchema.safeParse(bodyToValidate);
   if (!parsedBody.success) {
-    return res.status(400).json({
-      error: "Validation failed",
-      message: "Request body does not match the expected schema",
-      details: parsedBody.error.issues,
+  // Kung walang title = connection test lang ng platform, return 200
+  if (!req.body?.title) {
+    return res.status(200).json({
+      status: "ok",
+      message: "TelexPH Blog AI endpoint ready",
+      schema: {
+        required: ["title", "author", "mainCategory", "subcategory", "shortDescription", "mainContent", "status"],
+        optional: ["scheduledDate", "pictureUrl"],
+        mainCategories: [
+          "Main Service Categories",
+          "Industry-Specific Insights", 
+          "Business Growth & Strategy",
+          "Company Culture & Updates"
+        ],
+        statusOptions: ["published", "draft", "scheduled"]
+      }
     });
   }
+  // May title = real blog request pero may validation error
+  return res.status(400).json({
+    error: "Validation failed",
+    message: "Request body does not match the expected schema",
+    details: parsedBody.error.issues,
+  });
+}
 
   const body: CreateBlogDto = parsedBody.data;
 
