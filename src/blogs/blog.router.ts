@@ -17,7 +17,7 @@ import upload from "../middlewares/multer.ts";
 
 const router = express.Router();
 
-router.get("/ping", verifyApiKey, (req, res) => {
+router.get("/ping", (req, res) => {
   res.status(200).json({ 
     status: "ok", 
     message: "TelexPH Blog API connected",
