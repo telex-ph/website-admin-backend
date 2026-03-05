@@ -10,6 +10,8 @@ import {
   type GetResourceAnalyticsDto,
   getTopResourcesSchema,
   type GetTopResourcesDto,
+  getEngagementMetricsSchema,
+  type GetEngagementMetricsDto,
 } from "./dto/dashboard.dto.ts";
 
 // Type for the populated resource
@@ -568,103 +570,175 @@ export const getComparison = async (req: Request, res: Response) => {
   }
 };
 
+// ── Engagement Metrics helpers ────────────────────────────────────────────────
+
+type Granularity = "hour" | "day" | "month";
+
 /**
- * NEW: Get Engagement Metrics (Views and Likes) for Blogs and Case Studies
- * Supports filtering by resourceType: 'all', 'blog', 'casestudy'
+ * Produces a stable string key for a Date at the given granularity.
+ * Used to bucket dailyViews entries into the correct chart slot.
+ */
+function getSlotKey(date: Date, granularity: Granularity): string {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  const h = date.getHours();
+  if (granularity === "hour")  return `${y}-${m}-${d}-${h}`;
+  if (granularity === "day")   return `${y}-${m}-${d}`;
+  return `${y}-${m}`;
+}
+
+/**
+ * Builds an ordered array of time slots that covers [startDate, endDate]
+ * at the given granularity. Each slot has a stable key and a human label.
+ */
+function buildTimeSlots(
+  startDate: Date,
+  endDate: Date,
+  granularity: Granularity
+): Array<{ key: string; label: string }> {
+  const slots: Array<{ key: string; label: string }> = [];
+  const MONTH_SHORT = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+  const DAY_SHORT   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  if (granularity === "hour") {
+    // One slot per hour from the start hour to the end hour (max 24 h range)
+    const cursor = new Date(startDate);
+    cursor.setMinutes(0, 0, 0);
+    while (cursor <= endDate) {
+      slots.push({
+        key:   getSlotKey(cursor, "hour"),
+        label: `${cursor.getHours().toString().padStart(2, "0")}:00`,
+      });
+      cursor.setHours(cursor.getHours() + 1);
+    }
+  } else if (granularity === "day") {
+    // One slot per calendar day
+    const cursor = new Date(startDate);
+    cursor.setHours(0, 0, 0, 0);
+    while (cursor <= endDate) {
+      // For weekly ranges (≤ 7 days) use "Mon 2", for monthly use "2 Jan"
+      const rangeDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+      const label = rangeDays <= 7
+        ? `${DAY_SHORT[cursor.getDay()]} ${cursor.getDate()}`
+        : `${cursor.getDate()} ${MONTH_SHORT[cursor.getMonth()]}`;
+      slots.push({ key: getSlotKey(cursor, "day"), label });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  } else {
+    // One slot per calendar month
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const endMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+    while (cursor <= endMonth) {
+      slots.push({
+        key:   getSlotKey(cursor, "month"),
+        label: MONTH_SHORT[cursor.getMonth()]!,
+      });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  }
+
+  return slots;
+}
+
+/**
+ * NEW: Get Engagement Metrics (Views and Likes) for Blogs and Case Studies.
+ *
+ * Query params:
+ *   resourceType  — "all" | "blog" | "casestudy"  (default: "all")
+ *   startDate     — ISO datetime string  (default: 30 days ago)
+ *   endDate       — ISO datetime string  (default: now)
+ *
+ * Granularity is chosen automatically from the date range:
+ *   ≤ 1 day   → hourly  (24 points)
+ *   ≤ 31 days → daily   (one point per day)
+ *   > 31 days → monthly (one point per calendar month)
  */
 export const getEngagementMetrics = async (req: Request, res: Response) => {
   try {
-    const resourceType = (req.query.resourceType as string) || 'all';
-    const currentYear = new Date().getFullYear();
-    
-    // Build the filter based on resourceType
-    let analyticsFilter: any = {};
-    let blogFilter: any = {};
-    let caseStudyFilter: any = {};
-    
-    if (resourceType === 'blog') {
-      analyticsFilter = { resourceType: 'blog' };
-    } else if (resourceType === 'casestudy') {
-      analyticsFilter = { resourceType: 'casestudy' };
+    // ── 1. Parse & validate query params ─────────────────────────────────────
+    const parsed = getEngagementMetricsSchema.safeParse(req.query);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Validation failed",
+        details: parsed.error.issues,
+      });
     }
-    // If 'all', we fetch both (no filter needed)
 
-    // Initialize monthly data structure
-    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-    const monthlyData: { [key: string]: { views: number, likes: number } } = {};
-    
-    monthNames.forEach(month => {
-      monthlyData[month] = { views: 0, likes: 0 };
-    });
+    const { resourceType, startDate: startParam, endDate: endParam } = parsed.data;
 
-    // Get Analytics data (for views)
-    const analyticsData = await Analytics.find(analyticsFilter).lean().exec();
-    
-    // Aggregate views by month from Analytics
-    analyticsData.forEach((analytics: any) => {
-      if (analytics.dailyViews && Array.isArray(analytics.dailyViews)) {
-        analytics.dailyViews.forEach((dailyView: any) => {
-          const date = new Date(dailyView.date);
-          const monthIndex = date.getMonth();
-          const year = date.getFullYear();
-          
-          if (year === currentYear) {
-            const monthName = monthNames[monthIndex]!;
-            monthlyData[monthName]!.views += dailyView.count || 0;
-          }
-        });
+    // ── 2. Resolve date range (default: last 30 days) ─────────────────────────
+    const endDate = endParam ? new Date(endParam) : new Date();
+    endDate.setHours(23, 59, 59, 999); // inclusive of the last day
+
+    const startDate = startParam
+      ? new Date(startParam)
+      : (() => { const d = new Date(); d.setDate(d.getDate() - 30); d.setHours(0,0,0,0); return d; })();
+
+    // ── 3. Pick granularity based on range size ───────────────────────────────
+    const rangeDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000);
+    const granularity: Granularity =
+      rangeDays <= 1  ? "hour"  :
+      rangeDays <= 31 ? "day"   :
+                        "month";
+
+    // ── 4. Build slot map (all slots pre-seeded with 0) ───────────────────────
+    const slots = buildTimeSlots(startDate, endDate, granularity);
+    const slotMap = new Map<string, { views: number; likes: number }>();
+    slots.forEach(s => slotMap.set(s.key, { views: 0, likes: 0 }));
+
+    // ── 5. Aggregate views from Analytics.dailyViews ──────────────────────────
+    const analyticsFilter: any = {};
+    if (resourceType !== "all") analyticsFilter.resourceType = resourceType;
+
+    const analyticsRecords = await Analytics.find(analyticsFilter).lean().exec();
+
+    for (const record of analyticsRecords as any[]) {
+      if (!Array.isArray(record.dailyViews)) continue;
+      for (const dv of record.dailyViews) {
+        const dvDate = new Date(dv.date);
+        // Only include entries within the requested range
+        if (dvDate < startDate || dvDate > endDate) continue;
+        const key = getSlotKey(dvDate, granularity);
+        const slot = slotMap.get(key);
+        if (slot) slot.views += dv.count || 0;
       }
-    });
-
-    // Get Likes data from Blogs
-    if (resourceType === 'all' || resourceType === 'blog') {
-      const blogs = await Blog.find({}).lean().exec();
-      
-      blogs.forEach((blog: any) => {
-        if (blog.createdAt) {
-          const date = new Date(blog.createdAt);
-          const monthIndex = date.getMonth();
-          const year = date.getFullYear();
-          
-          if (year === currentYear) {
-            const monthName = monthNames[monthIndex]!;
-            monthlyData[monthName]!.likes += blog.likeCount || 0;
-          }
-        }
-      });
     }
 
-    // Get Likes data from Case Studies
-    if (resourceType === 'all' || resourceType === 'casestudy') {
-      const caseStudies = await CaseStudy.find({}).lean().exec();
-      
-      caseStudies.forEach((caseStudy: any) => {
-        if (caseStudy.createdAt) {
-          const date = new Date(caseStudy.createdAt);
-          const monthIndex = date.getMonth();
-          const year = date.getFullYear();
-          
-          if (year === currentYear) {
-            const monthName = monthNames[monthIndex]!;
-            monthlyData[monthName]!.likes += caseStudy.likesCount || 0;
-          }
-        }
-      });
+    // ── 6. Aggregate likes from Blog / CaseStudy (bucketed by createdAt) ──────
+    if (resourceType === "all" || resourceType === "blog") {
+      const blogs = await Blog.find({
+        createdAt: { $gte: startDate, $lte: endDate },
+      }).lean().exec();
+
+      for (const blog of blogs as any[]) {
+        if (!blog.createdAt) continue;
+        const key = getSlotKey(new Date(blog.createdAt), granularity);
+        const slot = slotMap.get(key);
+        if (slot) slot.likes += blog.likeCount || 0;
+      }
     }
 
-    // Convert to array format for the chart (last 7 months)
-    const currentMonth = new Date().getMonth();
-    const result: Array<{ name: string, views: number, likes: number }> = [];
-    
-    for (let i = 6; i >= 0; i--) {
-      const monthIndex = (currentMonth - i + 12) % 12;
-      const monthName = monthNames[monthIndex]!;
-      result.push({
-        name: monthName,
-        views: monthlyData[monthName]!.views,
-        likes: monthlyData[monthName]!.likes
-      });
+    if (resourceType === "all" || resourceType === "casestudy") {
+      const caseStudies = await CaseStudy.find({
+        createdAt: { $gte: startDate, $lte: endDate },
+      }).lean().exec();
+
+      for (const cs of caseStudies as any[]) {
+        if (!cs.createdAt) continue;
+        const key = getSlotKey(new Date(cs.createdAt), granularity);
+        const slot = slotMap.get(key);
+        if (slot) slot.likes += cs.likesCount || 0;
+      }
     }
+
+    // ── 7. Serialise to ordered array ─────────────────────────────────────────
+    const result = slots.map(s => ({
+      name:  s.label,
+      views: slotMap.get(s.key)!.views,
+      likes: slotMap.get(s.key)!.likes,
+    }));
 
     res.status(200).json(result);
 

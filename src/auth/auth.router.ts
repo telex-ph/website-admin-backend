@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, authenticateClient, logout, refresh } from "./auth.controller.ts";
+import { authenticate, authenticateClient, logout, refresh, getClientProfile } from "./auth.controller.ts";
 // Import ang verifyJwt middleware mula sa middlewares folder
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
 
@@ -11,6 +11,9 @@ router.post("/refresh", refresh);
 
 // 👤 Client login route
 router.post("/client/authenticate", authenticateClient);
+
+// 👤 Get current logged-in client profile (reads JWT cookie via verifyJwt)
+router.get("/client/me", verifyJwt, getClientProfile);
 
 // Protected route: Kailangan ng valid token para makapag-logout
 // Kapag tinangka itong i-access manually o via script nang walang token, 

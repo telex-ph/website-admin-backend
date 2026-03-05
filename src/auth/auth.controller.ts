@@ -247,3 +247,48 @@ export const logout = async (req: Request, res: Response) => {
 
   res.json({ message: "Logged out successfully", isLoggedOut: true });
 };
+
+// ============================================
+// 👤 GET CURRENT CLIENT PROFILE
+// GET /auth/client/me
+// Protected — requires verifyJwt middleware
+// Uses the id from the verified JWT payload to
+// fetch and return the full client document.
+// ============================================
+export const getClientProfile = async (req: Request, res: Response) => {
+  const user = (req as any).user as AuthPayload;
+
+  try {
+    const client = await Client.findById(user.id).select("-password").exec();
+
+    if (!client) {
+      return res.status(404).json({
+        error: "Not found",
+        message: "Client account not found",
+      });
+    }
+
+    if (client.isArchived) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Account is deactivated",
+      });
+    }
+
+    res.status(200).json({
+      id: client._id.toString(),
+      firstName: client.firstName,
+      lastName: client.lastName,
+      email: client.email,
+      contactNumber: client.contactNumber,
+      profilePicture: client.profilePicture ?? null,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("getClientProfile error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
