@@ -192,6 +192,19 @@ export const addBlog = async (req: Request, res: Response) => {
 // 🤖 AI PLATFORM PUBLISH (JSON - no file upload)
 // ============================================
 export const aiPublishBlog = async (req: Request, res: Response) => {
+    const hasBody = req.body && Object.keys(req.body).length > 0;
+  if (!hasBody) {
+    return res.status(200).json({ 
+      status: "ok", 
+      message: "TelexPH Blog AI endpoint ready",
+      schema: {
+        required: ["title", "author", "mainCategory", "subcategory", "shortDescription", "mainContent", "status"],
+        optional: ["scheduledDate", "pictureUrl"],
+        mainCategories: ["Main Service Categories", "Industry-Specific Insights", "Business Growth & Strategy", "Company Culture & Updates"],
+        statusOptions: ["published", "draft", "scheduled"]
+      }
+    });
+  }
   let bodyToValidate = { ...req.body };
 
   // Parse mainContent if stringified
