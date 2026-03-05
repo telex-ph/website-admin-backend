@@ -30,6 +30,10 @@ router.get("/ping", (req, res) => {
   });
 });
 
+router.post("/ping", (req, res) => {
+  res.status(200).json({ status: "ok", message: "TelexPH Blog API connected" });
+});
+
 // Public routes
 router.get("/", getAllBlogs);
 router.get("/fetch/:slug", getBlogBySlug); // Get by slug (place before /:id)
