@@ -12,6 +12,7 @@ import {
   checkLikeStatus,
 } from "./blog.controller.ts";
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+import { verifyApiKey } from "../middlewares/api-key.middleware.ts";
 import upload from "../middlewares/multer.ts";
 
 const router = express.Router();
@@ -27,8 +28,10 @@ router.delete("/:id/like", unlikeBlog); // Unlike a blog
 router.get("/:id/like-status", checkLikeStatus); // Check if user has liked
 
 // Protected routes - with image upload support
-router.post("/", verifyJwt, upload.single("picture"), addBlog);
-router.patch("/:id", verifyJwt, upload.single("picture"), updateBlog);
+//router.post("/", verifyJwt, upload.single("picture"), addBlog);
+//router.patch("/:id", verifyJwt, upload.single("picture"), updateBlog);
+router.post("/", verifyApiKey, upload.single("picture"), addBlog);
+router.patch("/:id", verifyApiKey, upload.single("picture"), updateBlog);
 router.patch("/:id/archive", verifyJwt, archiveBlog); // Archive (soft delete)
 router.patch("/:id/restore", verifyJwt, restoreBlog); // Restore from archive
 
