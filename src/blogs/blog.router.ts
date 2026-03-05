@@ -17,6 +17,19 @@ import upload from "../middlewares/multer.ts";
 
 const router = express.Router();
 
+router.get("/ping", verifyApiKey, (req, res) => {
+  res.status(200).json({ 
+    status: "ok", 
+    message: "TelexPH Blog API connected",
+    endpoints: {
+      getAll: "GET /api/blogs",
+      getBySlug: "GET /api/blogs/fetch/:slug",
+      create: "POST /api/blogs",
+      update: "PATCH /api/blogs/:id",
+    }
+  });
+});
+
 // Public routes
 router.get("/", getAllBlogs);
 router.get("/fetch/:slug", getBlogBySlug); // Get by slug (place before /:id)
