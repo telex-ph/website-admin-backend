@@ -24,3 +24,17 @@ export const getTopResourcesSchema = z.object({
 });
 
 export type GetTopResourcesDto = z.infer<typeof getTopResourcesSchema>;
+
+// ── Engagement Metrics ────────────────────────────────────────────────────────
+// startDate / endDate are ISO datetime strings sent by the frontend.
+// The controller uses the range size to auto-select grouping granularity:
+//   <= 1 day   -> hourly  (24 data points)
+//   <= 31 days -> daily   (N data points, one per day)
+//   > 31 days  -> monthly (one per calendar month)
+export const getEngagementMetricsSchema = z.object({
+  resourceType: z.enum(["blog", "casestudy", "all"]).optional().default("all"),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+});
+
+export type GetEngagementMetricsDto = z.infer<typeof getEngagementMetricsSchema>;

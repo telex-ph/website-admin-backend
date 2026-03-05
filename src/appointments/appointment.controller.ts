@@ -529,8 +529,6 @@ export const updateAppointment = async (req: Request, res: Response) => {
 };
 
 // ============================================
-// 🗑️ DELETE APPOINTMENT (GHL + MongoDB)
-// ============================================
 // 🔁 FORCE SYNC — re-pulls all appointments from GHL and upserts to MongoDB
 // POST /appointments/sync
 // ============================================
@@ -803,6 +801,37 @@ export const confirmAppointment = async (req: Request, res: Response) => {
   }
 };
 
+// ============================================
+// 📅 GET UPCOMING APPOINTMENTS — next 5 appointments from today
+// GET /appointments/upcoming
+// Protected — requires verifyJwt middleware.
+// Returns the 5 appointments whose startTime is closest to (and >= ) now,
+// sorted ascending so the soonest appears first.
+// ============================================
+export const getUpcomingAppointments = async (req: Request, res: Response) => {
+  try {
+    const now = new Date();
+
+    const appointments = await Appointment.find({
+      startTime: { $gte: now },
+      // Exclude cancelled / invalid appointments from the dashboard widget
+      appointmentStatus: { $nin: ["cancelled", "invalid"] },
+    })
+      .sort({ startTime: 1 })   // soonest first
+      .limit(5)
+      .lean()
+      .exec();
+
+    return res.status(200).json(appointments);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("getUpcomingAppointments error:", error.message);
+      return res.status(400).json({ error: error.message });
+    }
+    return res.status(400).json({ error: "Unknown error occurred" });
+  }
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Generates a random 12-character alphanumeric password */
@@ -814,3 +843,42 @@ function generateRandomPassword(): string {
   }
   return password;
 }
+
+// ============================================
+// 📋 GET MY APPOINTMENTS — returns only the logged-in client's appointments
+// GET /appointments/my
+// Protected — requires verifyJwt middleware (applied in the router).
+// Reads req.user.email set by verifyJwt, then queries MongoDB by email.
+// Supports optional ?status= query param to filter by appointmentStatus.
+// ============================================
+export const getMyAppointments = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+
+    if (!user?.email) {
+      return res.status(401).json({ error: "Unauthorized", message: "No authenticated user found." });
+    }
+
+    const { status } = req.query;
+
+    const filter: Record<string, any> = {
+      email: user.email, // only return appointments belonging to this client's email
+    };
+
+    if (status && status !== "all") {
+      filter["appointmentStatus"] = status;
+    }
+
+    const appointments = await Appointment.find(filter)
+      .sort({ startTime: -1 }) // most recent first
+      .exec();
+
+    return res.status(200).json(appointments);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("getMyAppointments error:", error.message);
+      return res.status(400).json({ error: error.message });
+    }
+    return res.status(400).json({ error: "Unknown error occurred" });
+  }
+};
