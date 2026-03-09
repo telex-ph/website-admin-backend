@@ -34,13 +34,14 @@ const port = 3000;
 // ============================================
 app.use(
   cors({
-    origin: "http://localhost:3001",
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"],
   })
 );
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

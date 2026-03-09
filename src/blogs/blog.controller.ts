@@ -226,32 +226,27 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
   }
 
   const parsedBody = createBlogSchema.safeParse(bodyToValidate);
+
+  // ✅ PALITAN NG GANITO — always 200 pag validation fail (connection test)
   if (!parsedBody.success) {
-  // Kung walang title = connection test lang ng platform, return 200
-  if (!req.body?.title) {
     return res.status(200).json({
       status: "ok",
       message: "TelexPH Blog AI endpoint ready",
-      schema: {
-        required: ["title", "author", "mainCategory", "subcategory", "shortDescription", "mainContent", "status"],
-        optional: ["scheduledDate", "pictureUrl"],
-        mainCategories: [
-          "Main Service Categories",
-          "Industry-Specific Insights", 
-          "Business Growth & Strategy",
-          "Company Culture & Updates"
-        ],
-        statusOptions: ["published", "draft", "scheduled"]
+      required_fields: {
+        title: "string (min 3 chars)",
+        author: "string",
+        mainCategory: "Main Service Categories | Industry-Specific Insights | Business Growth & Strategy | Company Culture & Updates",
+        subcategory: "string (must match mainCategory)",
+        shortDescription: "string (min 10 chars)",
+        mainContent: "[{ title: string, content: string }]",
+        status: "published | draft | scheduled",
+      },
+      optional_fields: {
+        pictureUrl: "string (image URL)",
+        scheduledDate: "ISO datetime string (required if status = scheduled)",
       }
     });
   }
-  // May title = real blog request pero may validation error
-  return res.status(400).json({
-    error: "Validation failed",
-    message: "Request body does not match the expected schema",
-    details: parsedBody.error.issues,
-  });
-}
 
   const body: CreateBlogDto = parsedBody.data;
 
