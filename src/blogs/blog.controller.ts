@@ -192,19 +192,22 @@ export const addBlog = async (req: Request, res: Response) => {
 // 🤖 AI PLATFORM PUBLISH (JSON - no file upload)
 // ============================================
 export const aiPublishBlog = async (req: Request, res: Response) => {
-    const hasBody = req.body && Object.keys(req.body).length > 0;
+  const hasBody = req.body && Object.keys(req.body).length > 0;
+
+  // ✅ No body = connection test / schema check lang
   if (!hasBody) {
     return res.status(200).json({ 
       status: "ok", 
       message: "TelexPH Blog AI endpoint ready",
       schema: {
         required: ["title", "author", "mainCategory", "subcategory", "shortDescription", "mainContent", "status"],
-        optional: ["scheduledDate", "pictureUrl"],
+        optional: ["scheduledDate", "pictureUrl", "slug"],
         mainCategories: ["Main Service Categories", "Industry-Specific Insights", "Business Growth & Strategy", "Company Culture & Updates"],
         statusOptions: ["published", "draft", "scheduled"]
       }
     });
   }
+
   let bodyToValidate = { ...req.body };
 
   // Parse mainContent if stringified
@@ -225,32 +228,33 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
     bodyToValidate.scheduledDate = undefined;
   }
 
+  // ✅ FIX: Proper validation — return 400 with details kung may validation error
   const parsedBody = createBlogSchema.safeParse(bodyToValidate);
 
-  // ✅ PALITAN NG GANITO — always 200 pag validation fail (connection test)
   if (!parsedBody.success) {
-    return res.status(200).json({
-      status: "ok",
-      message: "TelexPH Blog AI endpoint ready",
-      required_fields: {
-        title: "string (min 3 chars)",
-        author: "string",
-        mainCategory: "Main Service Categories | Industry-Specific Insights | Business Growth & Strategy | Company Culture & Updates",
-        subcategory: "string (must match mainCategory)",
-        shortDescription: "string (min 10 chars)",
-        mainContent: "[{ title: string, content: string }]",
-        status: "published | draft | scheduled",
-      },
-      optional_fields: {
-        pictureUrl: "string (image URL)",
-        scheduledDate: "ISO datetime string (required if status = scheduled)",
-      }
+    console.error("❌ [AI Publish] Validation failed:", parsedBody.error.issues);
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request body does not match the expected schema",
+      details: parsedBody.error.issues,
     });
   }
 
   const body: CreateBlogDto = parsedBody.data;
 
   try {
+    // ✅ FIX: Gamitin ang slug mula sa body kung mayroon (para ma-match ang URL ng SEO Autopilot),
+    // otherwise, i-generate mula sa title
+    const rawSlug: string = req.body.slug || toSlug(body.title);
+
+    // ✅ Siguraduhing unique ang slug — kung may duplicate, dagdagan ng timestamp suffix
+    let finalSlug = rawSlug;
+    const existingWithSlug = await Blog.findOne({ slug: rawSlug }).exec();
+    if (existingWithSlug) {
+      finalSlug = `${rawSlug}-${Date.now()}`;
+      console.warn(`⚠️ [AI Publish] Slug collision detected. Using fallback slug: ${finalSlug}`);
+    }
+
     // Use pictureUrl from JSON body, fallback to default Cloudinary image
     const pictureUrl: string =
       req.body.pictureUrl ||
@@ -258,7 +262,7 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
 
     const newBlog = {
       ...body,
-      slug: toSlug(body.title),
+      slug: finalSlug,
       picture: pictureUrl,
       scheduledDate: body.scheduledDate ? new Date(body.scheduledDate) : undefined,
       likeCount: 0,
@@ -267,6 +271,8 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
     };
 
     const blog = await Blog.create(newBlog as any) as IBlog & { _id: mongoose.Types.ObjectId };
+
+    console.log(`✅ [AI Publish] Blog saved to database: "${blog.title}" | slug: ${blog.slug} | id: ${blog._id}`);
 
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
