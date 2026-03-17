@@ -191,31 +191,81 @@ export const addBlog = async (req: Request, res: Response) => {
 // ============================================
 // 🤖 AI PLATFORM PUBLISH (JSON - no file upload)
 // ============================================
+
+// Valid enum values para sa normalization
+const VALID_MAIN_CATEGORIES = [
+  "Main Service Categories",
+  "Industry-Specific Insights",
+  "Business Growth & Strategy",
+  "Company Culture & Updates",
+] as const;
+
+const VALID_SUBCATEGORIES = [
+  "Customer Experience (CX)",
+  "Back Office Solutions",
+  "Virtual Assistance",
+  "Sales & Lead Generation",
+  "E-commerce Support",
+  "Real Estate Outsourcing",
+  "Healthcare BPO",
+  "Tech & SaaS Scaling",
+  "Scale Smarter",
+  "Outsourcing 101",
+  "Cost Optimization",
+  "TelexPH Life",
+  "News & Press Releases",
+] as const;
+
+// Helper: i-normalize ang string sa pinakamalapit na valid enum value (case-insensitive + trim)
+const normalizeToEnum = <T extends string>(
+  input: string,
+  validValues: readonly T[]
+): T | null => {
+  if (!input) return null;
+  const trimmed = input.trim();
+  // Exact match muna
+  const exactMatch = validValues.find((v) => v === trimmed);
+  if (exactMatch) return exactMatch;
+  // Case-insensitive match
+  const caseInsensitive = validValues.find(
+    (v) => v.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (caseInsensitive) return caseInsensitive;
+  return null;
+};
+
 export const aiPublishBlog = async (req: Request, res: Response) => {
   const hasBody = req.body && Object.keys(req.body).length > 0;
 
   // ✅ No body = connection test / schema check lang
   if (!hasBody) {
-    return res.status(200).json({ 
-      status: "ok", 
+    return res.status(200).json({
+      status: "ok",
       message: "TelexPH Blog AI endpoint ready",
       schema: {
         required: ["title", "author", "mainCategory", "subcategory", "shortDescription", "mainContent", "status"],
         optional: ["scheduledDate", "pictureUrl", "slug"],
-        mainCategories: ["Main Service Categories", "Industry-Specific Insights", "Business Growth & Strategy", "Company Culture & Updates"],
-        statusOptions: ["published", "draft", "scheduled"]
-      }
+        mainCategories: VALID_MAIN_CATEGORIES,
+        subcategories: VALID_SUBCATEGORIES,
+        statusOptions: ["published", "draft", "scheduled"],
+      },
     });
   }
+
+  // ✅ LOG: I-log ang exact raw body para malaman kung ano ang ipinapadala ng SEO Autopilot
+  console.log("🤖 ===== AI PUBLISH REQUEST =====");
+  console.log("📥 Raw body received:", JSON.stringify(req.body, null, 2));
+  console.log("📋 Fields received:", Object.keys(req.body));
 
   let bodyToValidate = { ...req.body };
 
   // Parse mainContent if stringified
-  if (typeof bodyToValidate.mainContent === 'string') {
+  if (typeof bodyToValidate.mainContent === "string") {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
     } catch (e) {
-      return res.status(400).json({ error: "Invalid format for mainContent" });
+      console.error("❌ [AI Publish] mainContent parse error:", e);
+      return res.status(400).json({ error: "Invalid format for mainContent — must be a JSON array of { title, content }" });
     }
   }
 
@@ -228,26 +278,63 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
     bodyToValidate.scheduledDate = undefined;
   }
 
-  // ✅ FIX: Proper validation — return 400 with details kung may validation error
+  // ✅ NORMALIZE: I-fix ang mainCategory at subcategory kung may case/spacing mismatch
+  if (typeof bodyToValidate.mainCategory === "string") {
+    const normalized = normalizeToEnum(bodyToValidate.mainCategory, VALID_MAIN_CATEGORIES);
+    if (normalized) {
+      console.log(`🔧 [AI Publish] mainCategory normalized: "${bodyToValidate.mainCategory}" → "${normalized}"`);
+      bodyToValidate.mainCategory = normalized;
+    } else {
+      console.error(`❌ [AI Publish] mainCategory not recognized: "${bodyToValidate.mainCategory}"`);
+    }
+  }
+
+  if (typeof bodyToValidate.subcategory === "string") {
+    const normalized = normalizeToEnum(bodyToValidate.subcategory, VALID_SUBCATEGORIES);
+    if (normalized) {
+      console.log(`🔧 [AI Publish] subcategory normalized: "${bodyToValidate.subcategory}" → "${normalized}"`);
+      bodyToValidate.subcategory = normalized;
+    } else {
+      console.error(`❌ [AI Publish] subcategory not recognized: "${bodyToValidate.subcategory}"`);
+    }
+  }
+
+  console.log("🔍 [AI Publish] Body after normalization:", JSON.stringify(bodyToValidate, null, 2));
+
   const parsedBody = createBlogSchema.safeParse(bodyToValidate);
 
   if (!parsedBody.success) {
-    console.error("❌ [AI Publish] Validation failed:", parsedBody.error.issues);
+    console.error("❌ [AI Publish] Validation failed. Issues:");
+    parsedBody.error.issues.forEach((issue, i) => {
+      console.error(`   [${i + 1}] path: ${issue.path.join(".")} | message: ${issue.message} | received: ${JSON.stringify((issue as any).received ?? "N/A")}`);
+    });
     return res.status(400).json({
       error: "Validation failed",
       message: "Request body does not match the expected schema",
       details: parsedBody.error.issues,
+      received: {
+        mainCategory: bodyToValidate.mainCategory,
+        subcategory: bodyToValidate.subcategory,
+        status: bodyToValidate.status,
+        title: bodyToValidate.title,
+        hasMainContent: Array.isArray(bodyToValidate.mainContent),
+        mainContentLength: Array.isArray(bodyToValidate.mainContent) ? bodyToValidate.mainContent.length : 0,
+      },
+      valid_values: {
+        mainCategories: VALID_MAIN_CATEGORIES,
+        subcategories: VALID_SUBCATEGORIES,
+        status: ["published", "draft", "scheduled"],
+      },
     });
   }
 
   const body: CreateBlogDto = parsedBody.data;
 
   try {
-    // ✅ FIX: Gamitin ang slug mula sa body kung mayroon (para ma-match ang URL ng SEO Autopilot),
-    // otherwise, i-generate mula sa title
-    const rawSlug: string = req.body.slug || toSlug(body.title);
+    // ✅ Gamitin ang slug mula sa body kung mayroon, otherwise i-generate mula sa title
+    const rawSlug: string = (req.body.slug as string) || toSlug(body.title);
 
-    // ✅ Siguraduhing unique ang slug — kung may duplicate, dagdagan ng timestamp suffix
+    // ✅ Slug uniqueness check — dagdagan ng timestamp kung may duplicate
     let finalSlug = rawSlug;
     const existingWithSlug = await Blog.findOne({ slug: rawSlug }).exec();
     if (existingWithSlug) {
@@ -255,7 +342,7 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
       console.warn(`⚠️ [AI Publish] Slug collision detected. Using fallback slug: ${finalSlug}`);
     }
 
-    // Use pictureUrl from JSON body, fallback to default Cloudinary image
+    // Use pictureUrl from body, fallback to default
     const pictureUrl: string =
       req.body.pictureUrl ||
       "https://res.cloudinary.com/dyhytmzqk/image/upload/v1/telexph/blog-default.jpg";
@@ -270,9 +357,15 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
       isArchive: false,
     };
 
-    const blog = await Blog.create(newBlog as any) as IBlog & { _id: mongoose.Types.ObjectId };
+    const blog = (await Blog.create(newBlog as any)) as IBlog & { _id: mongoose.Types.ObjectId };
 
-    console.log(`✅ [AI Publish] Blog saved to database: "${blog.title}" | slug: ${blog.slug} | id: ${blog._id}`);
+    console.log(`✅ [AI Publish] Blog SAVED TO DATABASE:`);
+    console.log(`   - Title: "${blog.title}"`);
+    console.log(`   - Slug: ${blog.slug}`);
+    console.log(`   - ID: ${blog._id}`);
+    console.log(`   - Status: ${blog.status}`);
+    console.log(`   - mainCategory: ${blog.mainCategory}`);
+    console.log(`   - subcategory: ${blog.subcategory}`);
 
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
@@ -292,13 +385,16 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
       req,
     });
 
+    console.log("🎉 ===== AI PUBLISH COMPLETE =====\n");
+
     res.status(201).json(blog);
   } catch (error) {
     if (error instanceof Error) {
-      console.error("AI Publish blog error:", error.message);
+      console.error("❌ AI Publish blog error:", error.message);
+      console.error("❌ Stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("AI Publish error:", error);
+      console.error("❌ AI Publish unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
