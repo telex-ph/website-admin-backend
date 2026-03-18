@@ -228,32 +228,81 @@ const normalizeToEnum = <T extends string>(
 };
 
 /**
- * ✅ SEO AUTOPILOT PAYLOAD TRANSFORMER
+ * ✅ AI PLATFORM PAYLOAD TRANSFORMER
  *
- * The SEO Autopilot sends completely different field names from our schema.
- * This function maps them to what our database expects:
+ * FORMAT A — Sight AI (nested article object):
+ *   body.article.title          → title
+ *   body.article.summary        → shortDescription
+ *   body.article.content        → mainContent
+ *   body.article.slug           → slug
+ *   body.article.main_image_url → pictureUrl
+ *   body.article.author_name    → author
  *
- *   SEO Autopilot field    →  Our schema field
- *   ─────────────────────────────────────────────
- *   content (HTML string)  →  mainContent (array of {title, content})
- *   excerpt                →  shortDescription
- *   meta_description       →  shortDescription (fallback)
- *   featured_image         →  pictureUrl
- *   featured_image_url     →  pictureUrl (fallback)
- *   (not sent)             →  author → defaults to "TelexPH Team"
- *   (not sent)             →  mainCategory → inferred from title/keywords
- *   (not sent)             →  subcategory  → inferred from title/keywords
+ * FORMAT B — SEO Autopilot (flat body):
+ *   body.content        → mainContent
+ *   body.excerpt        → shortDescription
+ *   body.featured_image → pictureUrl
  */
 const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string, any> => {
   const transformed = { ...body };
 
-  // --- author ---
+  // ============================================
+  // 🤖 SIGHT AI — Unwrap nested article object
+  // ============================================
+  if (body.article && typeof body.article === "object") {
+    const article = body.article;
+    console.log("🔧 [Transform] Sight AI format detected — unwrapping article object");
+
+    if (!transformed.title && article.title) {
+      transformed.title = article.title;
+      console.log(`🔧 [Transform] title → from article.title: "${article.title}"`);
+    }
+    if (!transformed.slug && article.slug) {
+      transformed.slug = article.slug;
+      console.log(`🔧 [Transform] slug → from article.slug`);
+    }
+    if (!transformed.author && article.author_name) {
+      transformed.author = article.author_name;
+      console.log(`🔧 [Transform] author → from article.author_name: "${article.author_name}"`);
+    }
+    if (!transformed.shortDescription) {
+      const desc = article.summary || article.seo_meta_description || "";
+      if (desc) {
+        transformed.shortDescription = desc.trim().slice(0, 300);
+        console.log(`🔧 [Transform] shortDescription → from article.summary`);
+      }
+    }
+    if (!transformed.content && article.content) {
+      transformed.content = article.content;
+      console.log(`🔧 [Transform] content → from article.content`);
+    }
+    if (!transformed.pictureUrl && !transformed.picture) {
+      const imageUrl = article.main_image_url || article.thumbnail_image_url || "";
+      if (imageUrl) {
+        transformed.pictureUrl = imageUrl;
+        console.log(`🔧 [Transform] pictureUrl → from article.main_image_url`);
+      }
+    }
+    if (!transformed.focus_keyword && article.target_keyword) {
+      transformed.focus_keyword = article.target_keyword;
+    }
+    if (!transformed.status) {
+      transformed.status = "published";
+      console.log(`🔧 [Transform] status → defaulted to "published"`);
+    }
+  }
+
+  // ============================================
+  // 🔧 COMMON TRANSFORMS (both formats)
+  // ============================================
+
+  // --- author fallback ---
   if (!transformed.author) {
     transformed.author = "TelexPH Team";
     console.log(`🔧 [Transform] author → defaulted to "TelexPH Team"`);
   }
 
-  // --- shortDescription ---
+  // --- shortDescription fallback ---
   if (!transformed.shortDescription) {
     const fallback = transformed.excerpt || transformed.meta_description || "";
     if (fallback) {
@@ -262,14 +311,14 @@ const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string,
     }
   }
 
-  // --- pictureUrl ---
+  // --- pictureUrl fallback ---
   if (!transformed.pictureUrl && !transformed.picture) {
     const imageUrl =
       transformed.featured_image ||
       transformed.featured_image_url ||
       "https://res.cloudinary.com/dyhytmzqk/image/upload/v1/telexph/blog-default.jpg";
     transformed.pictureUrl = imageUrl;
-    console.log(`🔧 [Transform] pictureUrl → mapped from featured_image: ${imageUrl}`);
+    console.log(`🔧 [Transform] pictureUrl → fallback: "${imageUrl}"`);
   }
 
   // --- mainContent ---
@@ -494,7 +543,7 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
 
   try {
     // ✅ Use slug from body (Sight AI sends this), else generate from title
-    const rawSlug: string = (req.body.slug as string) || toSlug(body.title);
+    const rawSlug: string = (bodyToValidate.slug as string) || toSlug(body.title);
 
     // ✅ Slug uniqueness check — with 5s timeout to avoid hanging
     let finalSlug = rawSlug;
