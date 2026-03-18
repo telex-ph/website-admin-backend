@@ -254,18 +254,15 @@ const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string,
   }
 
   // --- shortDescription ---
-  // Map from: excerpt OR meta_description
   if (!transformed.shortDescription) {
     const fallback = transformed.excerpt || transformed.meta_description || "";
     if (fallback) {
-      // Zod requires min 10 chars; slice to 300 max
       transformed.shortDescription = fallback.trim().slice(0, 300);
       console.log(`🔧 [Transform] shortDescription → mapped from excerpt/meta_description`);
     }
   }
 
   // --- pictureUrl ---
-  // Map from: featured_image OR featured_image_url
   if (!transformed.pictureUrl && !transformed.picture) {
     const imageUrl =
       transformed.featured_image ||
@@ -276,12 +273,10 @@ const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string,
   }
 
   // --- mainContent ---
-  // Map from: content (raw HTML string) → parse H2 headings into sections
   if (!transformed.mainContent && transformed.content) {
     const htmlContent = transformed.content as string;
     const sections: { title: string; content: string }[] = [];
 
-    // Try to split by H2 headings
     const h2Regex = /<h2[^>]*>(.*?)<\/h2>([\s\S]*?)(?=<h2|$)/gi;
     let match;
     while ((match = h2Regex.exec(htmlContent)) !== null) {
@@ -292,7 +287,6 @@ const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string,
       }
     }
 
-    // Fallback: treat entire content as one section
     if (sections.length === 0) {
       sections.push({
         title: transformed.title || "Content",
@@ -305,7 +299,6 @@ const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string,
   }
 
   // --- mainCategory + subcategory ---
-  // SEO Autopilot does NOT send these. Infer from focus_keyword + title.
   if (!transformed.mainCategory) {
     const keyword = (transformed.focus_keyword || "").toLowerCase();
     const titleLower = (transformed.title || "").toLowerCase();
@@ -500,12 +493,14 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
   const body: CreateBlogDto = parsedBody.data;
 
   try {
-    // ✅ Use slug from SEO Autopilot body (it sends this), else generate from title
+    // ✅ Use slug from body (Sight AI sends this), else generate from title
     const rawSlug: string = (req.body.slug as string) || toSlug(body.title);
 
-    // ✅ Slug uniqueness check
+    // ✅ Slug uniqueness check — with 5s timeout to avoid hanging
     let finalSlug = rawSlug;
-    const existingWithSlug = await Blog.findOne({ slug: rawSlug }).exec();
+    const existingWithSlug = await Blog.findOne({ slug: rawSlug })
+      .maxTimeMS(5000) // ✅ FIX: prevent hanging on slow DB connection
+      .exec();
     if (existingWithSlug) {
       finalSlug = `${rawSlug}-${Date.now()}`;
       console.warn(`⚠️ [AI Publish] Slug collision detected. Using fallback: ${finalSlug}`);
@@ -536,8 +531,15 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
     console.log(`   - Category : ${blog.mainCategory} > ${blog.subcategory}`);
     console.log(`   - Author   : ${blog.author}`);
 
+    console.log("🎉 ===== AI PUBLISH COMPLETE =====\n");
+
+    // ✅ FIX: Respond IMMEDIATELY — do not block on logActivity
+    // Sight AI has a short timeout; if we await logActivity first, it times out → 503
+    res.status(201).json(blog);
+
+    // 🔥 Fire-and-forget: log in background after response is already sent
     const adminEmail = getUserEmailFromRequest(req);
-    await logActivity({
+    logActivity({
       action: "CREATED",
       module: "BLOGS",
       admin: adminEmail || "AI Platform",
@@ -552,11 +554,10 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
         description: `[AI Platform] Created blog post "${blog.title}"`,
       },
       req,
-    });
+    }).catch((err) =>
+      console.error("❌ [AI Publish] Background logActivity error:", err)
+    );
 
-    console.log("🎉 ===== AI PUBLISH COMPLETE =====\n");
-
-    res.status(201).json(blog);
   } catch (error) {
     if (error instanceof Error) {
       console.error("❌ AI Publish blog error:", error.message);
