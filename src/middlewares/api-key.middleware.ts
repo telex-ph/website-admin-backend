@@ -6,49 +6,66 @@ export const verifyApiKey = (req: Request, res: Response, next: NextFunction) =>
 
   // ============================================
   // 🤖 SIGHT AI — Signature-based verification
-  // Sight AI signs requests using HMAC SHA256
-  // Headers sent: x-sightai-signature, x-sightai-timestamp, x-sightai-version
   // ============================================
   const sightaiSignature = req.headers["x-sightai-signature"] as string;
   const sightaiTimestamp = req.headers["x-sightai-timestamp"] as string;
 
   if (sightaiSignature && sightaiTimestamp) {
-    console.log("🤖 [API-KEY] Sight AI webhook detected — using signature verification");
+    console.log("🤖 [API-KEY] Sight AI webhook detected — debugging signature");
+    console.log("📨 [DEBUG] Received signature :", sightaiSignature);
+    console.log("⏱️  [DEBUG] Timestamp          :", sightaiTimestamp);
 
     if (!expectedSecret) {
-      console.error("❌ [API-KEY] BLOG_API_KEY is not set in environment variables");
+      console.error("❌ [API-KEY] BLOG_API_KEY not set");
       return res.status(500).json({ message: "Server misconfiguration" });
     }
 
-    // Sight AI signs: timestamp + "." + raw body
     const rawBody = JSON.stringify(req.body);
-    const payload = `${sightaiTimestamp}.${rawBody}`;
 
-    const expectedSignature = "sha256=" + crypto
-      .createHmac("sha256", expectedSecret)
-      .update(payload)
-      .digest("hex");
+    // ============================================
+    // 🔬 TRY ALL KNOWN PAYLOAD FORMATS
+    // Log each one so we can find which matches
+    // ============================================
 
-    console.log("🔑 [API-KEY] Received signature:", sightaiSignature);
-    console.log("🔑 [API-KEY] Expected signature:", expectedSignature);
+    // Format 1: timestamp.body (Stripe-style)
+    const payload1 = `${sightaiTimestamp}.${rawBody}`;
+    const sig1 = "sha256=" + crypto.createHmac("sha256", expectedSecret).update(payload1).digest("hex");
 
-    // Use timingSafeEqual to prevent timing attacks
-    const receivedBuf = Buffer.from(sightaiSignature);
-    const expectedBuf = Buffer.from(expectedSignature);
+    // Format 2: body only (no timestamp)
+    const sig2 = "sha256=" + crypto.createHmac("sha256", expectedSecret).update(rawBody).digest("hex");
 
-    const isValid =
-      receivedBuf.length === expectedBuf.length &&
-      crypto.timingSafeEqual(receivedBuf, expectedBuf);
+    // Format 3: timestamp + body (no dot separator)
+    const payload3 = `${sightaiTimestamp}${rawBody}`;
+    const sig3 = "sha256=" + crypto.createHmac("sha256", expectedSecret).update(payload3).digest("hex");
 
-    console.log("🔑 [API-KEY] Signature match?:", isValid);
+    // Format 4: raw hex body only (no sha256= prefix)
+    const sig4 = crypto.createHmac("sha256", expectedSecret).update(rawBody).digest("hex");
 
-    if (!isValid) {
-      console.warn("⛔ [API-KEY] Invalid Sight AI signature — request rejected");
-      return res.status(401).json({ message: "Unauthorized" });
+    console.log("🔬 [DEBUG] Format 1 (timestamp.body)   :", sig1);
+    console.log("🔬 [DEBUG] Format 2 (body only)        :", sig2);
+    console.log("🔬 [DEBUG] Format 3 (timestampbody)    :", sig3);
+    console.log("🔬 [DEBUG] Format 4 (raw hex body only):", "sha256=" + sig4);
+    console.log("🔬 [DEBUG] Received signature           :", sightaiSignature);
+
+    const matchedFormat =
+      sightaiSignature === sig1 ? "Format 1 (timestamp.body)" :
+      sightaiSignature === sig2 ? "Format 2 (body only)" :
+      sightaiSignature === sig3 ? "Format 3 (timestampbody)" :
+      sightaiSignature === ("sha256=" + sig4) ? "Format 4 (raw hex)" :
+      null;
+
+    if (matchedFormat) {
+      console.log(`✅ [API-KEY] Signature MATCHED using: ${matchedFormat}`);
+      return next();
     }
 
-    console.log("✅ [API-KEY] Sight AI signature verified successfully");
-    return next();
+    // ============================================
+    // ⚠️ TEMPORARY BYPASS — for debugging only
+    // Remove return next() below after finding format
+    // ============================================
+    console.warn("⚠️  [API-KEY] No format matched — allowing through for debugging");
+    console.warn("⚠️  [API-KEY] REMOVE THIS BYPASS after finding the correct format!");
+    return next(); // ← REMOVE THIS LINE after debugging
   }
 
   // ============================================
