@@ -173,6 +173,58 @@ export const authenticateClient = async (req: Request, res: Response) => {
   }
 };
 
+// ============================================
+// 👤 CLIENT SELF-REGISTRATION
+// POST /auth/client/register
+// Public — no JWT required
+// ============================================
+export const registerClient = async (req: Request, res: Response) => {
+  const { firstName, lastName, email, contactNumber, password } = req.body;
+
+  try {
+    if (!firstName) throw new Error("First name is required");
+    if (!lastName) throw new Error("Last name is required");
+    if (!email) throw new Error("Email is required");
+    if (!contactNumber) throw new Error("Contact number is required");
+    if (!password) throw new Error("Password is required");
+
+    // Check for duplicate email
+    const existing = await Client.findOne({ email }).exec();
+    if (existing) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "An account with this email already exists",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newClient = await Client.create({
+      firstName,
+      lastName,
+      email,
+      contactNumber,
+      password: hashedPassword,
+    }) as any;
+
+    console.log("✅ New client registered:", email);
+
+    // Strip password from response
+    const { password: _pw, ...safeClient } = newClient.toObject();
+    res.status(201).json({
+      message: "Account created successfully",
+      client: safeClient,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Client registration error:", error.message);
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
 export const refresh = async (req: Request, res: Response) => {
   const publicPEM = process.env.PUBLIC_KEY;
   if (!publicPEM) throw new Error("Public key is empty");

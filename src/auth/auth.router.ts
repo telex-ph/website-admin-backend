@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, authenticateClient, logout, refresh, getClientProfile } from "./auth.controller.ts";
+import { authenticate, authenticateClient, registerClient, logout, refresh, getClientProfile } from "./auth.controller.ts";
 // Import ang verifyJwt middleware mula sa middlewares folder
 import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
 
@@ -11,6 +11,9 @@ router.post("/refresh", refresh);
 
 // 👤 Client login route
 router.post("/client/authenticate", authenticateClient);
+
+// 👤 Client self-registration (public — no JWT required)
+router.post("/client/register", registerClient);
 
 // 👤 Get current logged-in client profile (reads JWT cookie via verifyJwt)
 router.get("/client/me", verifyJwt, getClientProfile);
