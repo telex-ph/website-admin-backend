@@ -12,6 +12,7 @@ import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
 import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.ts";
 import mongoose from "mongoose";
+
 // ============================================
 // 📋 ACTIVITY LOG HELPERS
 // ============================================
@@ -51,17 +52,15 @@ const buildBlogChanges = (
 
 const getUserIdentifier = (req: Request): string => {
   const forwarded = req.headers['x-forwarded-for'];
-  const ip = forwarded 
+  const ip = forwarded
     ? (typeof forwarded === 'string' ? (forwarded.split(',')[0] ?? 'unknown') : (forwarded[0] ?? 'unknown'))
     : req.socket.remoteAddress || 'unknown';
-  
   return ip;
 };
 
 const autoPublishScheduledBlogs = async () => {
   try {
     const now = new Date();
-    
     const scheduledBlogs = await Blog.find({
       status: "scheduled",
       scheduledDate: { $lte: now }
@@ -69,12 +68,10 @@ const autoPublishScheduledBlogs = async () => {
 
     if (scheduledBlogs.length > 0) {
       console.log(`📅 [AUTO-PUBLISH] Found ${scheduledBlogs.length} scheduled blog(s) ready to publish`);
-      
       for (const blog of scheduledBlogs) {
         try {
           blog.status = "published";
           await blog.save();
-          
           console.log(`✅ [AUTO-PUBLISH] Published: "${blog.title}" (ID: ${blog._id})`);
           console.log(`   - Scheduled Date: ${blog.scheduledDate}`);
           console.log(`   - Published At: ${now}`);
@@ -125,7 +122,7 @@ export const addBlog = async (req: Request, res: Response) => {
     }
 
     const result = await uploadFile(req.file);
-    
+
     let pictureUrl: string;
     if (typeof result === 'string') {
       pictureUrl = result;
@@ -191,32 +188,247 @@ export const addBlog = async (req: Request, res: Response) => {
 // ============================================
 // 🤖 AI PLATFORM PUBLISH (JSON - no file upload)
 // ============================================
-export const aiPublishBlog = async (req: Request, res: Response) => {
-    const hasBody = req.body && Object.keys(req.body).length > 0;
-  if (!hasBody) {
-    return res.status(200).json({ 
-      status: "ok", 
-      message: "TelexPH Blog AI endpoint ready",
-      schema: {
-        required: ["title", "author", "mainCategory", "subcategory", "shortDescription", "mainContent", "status"],
-        optional: ["scheduledDate", "pictureUrl"],
-        mainCategories: ["Main Service Categories", "Industry-Specific Insights", "Business Growth & Strategy", "Company Culture & Updates"],
-        statusOptions: ["published", "draft", "scheduled"]
+
+const VALID_MAIN_CATEGORIES = [
+  "Main Service Categories",
+  "Industry-Specific Insights",
+  "Business Growth & Strategy",
+  "Company Culture & Updates",
+] as const;
+
+const VALID_SUBCATEGORIES = [
+  "Customer Experience (CX)",
+  "Back Office Solutions",
+  "Virtual Assistance",
+  "Sales & Lead Generation",
+  "E-commerce Support",
+  "Real Estate Outsourcing",
+  "Healthcare BPO",
+  "Tech & SaaS Scaling",
+  "Scale Smarter",
+  "Outsourcing 101",
+  "Cost Optimization",
+  "TelexPH Life",
+  "News & Press Releases",
+] as const;
+
+const normalizeToEnum = <T extends string>(
+  input: string,
+  validValues: readonly T[]
+): T | null => {
+  if (!input) return null;
+  const trimmed = input.trim();
+  const exactMatch = validValues.find((v) => v === trimmed);
+  if (exactMatch) return exactMatch;
+  const caseInsensitive = validValues.find(
+    (v) => v.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (caseInsensitive) return caseInsensitive;
+  return null;
+};
+
+/**
+ * ✅ SEO AUTOPILOT PAYLOAD TRANSFORMER
+ *
+ * The SEO Autopilot sends completely different field names from our schema.
+ * This function maps them to what our database expects:
+ *
+ *   SEO Autopilot field    →  Our schema field
+ *   ─────────────────────────────────────────────
+ *   content (HTML string)  →  mainContent (array of {title, content})
+ *   excerpt                →  shortDescription
+ *   meta_description       →  shortDescription (fallback)
+ *   featured_image         →  pictureUrl
+ *   featured_image_url     →  pictureUrl (fallback)
+ *   (not sent)             →  author → defaults to "TelexPH Team"
+ *   (not sent)             →  mainCategory → inferred from title/keywords
+ *   (not sent)             →  subcategory  → inferred from title/keywords
+ */
+const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string, any> => {
+  const transformed = { ...body };
+
+  // --- author ---
+  if (!transformed.author) {
+    transformed.author = "TelexPH Team";
+    console.log(`🔧 [Transform] author → defaulted to "TelexPH Team"`);
+  }
+
+  // --- shortDescription ---
+  if (!transformed.shortDescription) {
+    const fallback = transformed.excerpt || transformed.meta_description || "";
+    if (fallback) {
+      transformed.shortDescription = fallback.trim().slice(0, 300);
+      console.log(`🔧 [Transform] shortDescription → mapped from excerpt/meta_description`);
+    }
+  }
+
+  // --- pictureUrl ---
+  if (!transformed.pictureUrl && !transformed.picture) {
+    const imageUrl =
+      transformed.featured_image ||
+      transformed.featured_image_url ||
+      "https://res.cloudinary.com/dyhytmzqk/image/upload/v1/telexph/blog-default.jpg";
+    transformed.pictureUrl = imageUrl;
+    console.log(`🔧 [Transform] pictureUrl → mapped from featured_image: ${imageUrl}`);
+  }
+
+  // --- mainContent ---
+  if (!transformed.mainContent && transformed.content) {
+    const htmlContent = transformed.content as string;
+    const sections: { title: string; content: string }[] = [];
+
+    const h2Regex = /<h2[^>]*>(.*?)<\/h2>([\s\S]*?)(?=<h2|$)/gi;
+    let match;
+    while ((match = h2Regex.exec(htmlContent)) !== null) {
+      const sectionTitle = match[1]?.replace(/<[^>]+>/g, "").trim() || "Section";
+      const sectionContent = match[2]?.trim() || "";
+      if (sectionTitle && sectionContent) {
+        sections.push({ title: sectionTitle, content: sectionContent });
       }
+    }
+
+    if (sections.length === 0) {
+      sections.push({
+        title: transformed.title || "Content",
+        content: htmlContent,
+      });
+    }
+
+    transformed.mainContent = sections;
+    console.log(`🔧 [Transform] mainContent → built from HTML (${sections.length} section(s))`);
+  }
+
+  // --- mainCategory + subcategory ---
+  if (!transformed.mainCategory) {
+    const keyword = (transformed.focus_keyword || "").toLowerCase();
+    const titleLower = (transformed.title || "").toLowerCase();
+
+    let inferredCategory: typeof VALID_MAIN_CATEGORIES[number] = "Business Growth & Strategy";
+    let inferredSubcategory: typeof VALID_SUBCATEGORIES[number] = "Scale Smarter";
+
+    if (
+      keyword.includes("customer") || keyword.includes("cx") || keyword.includes("support") ||
+      titleLower.includes("customer") || titleLower.includes("support")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Customer Experience (CX)";
+    } else if (
+      keyword.includes("virtual") || keyword.includes("assistant") ||
+      titleLower.includes("virtual assistant")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Virtual Assistance";
+    } else if (
+      keyword.includes("sales") || keyword.includes("lead") ||
+      titleLower.includes("sales") || titleLower.includes("lead generation")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Sales & Lead Generation";
+    } else if (
+      keyword.includes("back office") || keyword.includes("back-office") ||
+      titleLower.includes("back office")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Back Office Solutions";
+    } else if (
+      keyword.includes("ecommerce") || keyword.includes("e-commerce") || keyword.includes("shopify") ||
+      titleLower.includes("ecommerce") || titleLower.includes("e-commerce")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "E-commerce Support";
+    } else if (
+      keyword.includes("real estate") || titleLower.includes("real estate")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "Real Estate Outsourcing";
+    } else if (
+      keyword.includes("healthcare") || keyword.includes("medical") ||
+      titleLower.includes("healthcare") || titleLower.includes("medical")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "Healthcare BPO";
+    } else if (
+      keyword.includes("saas") || keyword.includes("tech") || keyword.includes("software") ||
+      titleLower.includes("saas") || titleLower.includes("tech")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "Tech & SaaS Scaling";
+    } else if (
+      keyword.includes("outsourc") || titleLower.includes("outsourc")
+    ) {
+      inferredCategory = "Business Growth & Strategy";
+      inferredSubcategory = "Outsourcing 101";
+    } else if (
+      keyword.includes("cost") || keyword.includes("saving") ||
+      titleLower.includes("cost") || titleLower.includes("saving")
+    ) {
+      inferredCategory = "Business Growth & Strategy";
+      inferredSubcategory = "Cost Optimization";
+    } else if (
+      keyword.includes("culture") || keyword.includes("telex life") ||
+      titleLower.includes("telex life") || titleLower.includes("our team")
+    ) {
+      inferredCategory = "Company Culture & Updates";
+      inferredSubcategory = "TelexPH Life";
+    } else if (
+      keyword.includes("news") || keyword.includes("press") || keyword.includes("announcement") ||
+      titleLower.includes("announcement") || titleLower.includes("press release")
+    ) {
+      inferredCategory = "Company Culture & Updates";
+      inferredSubcategory = "News & Press Releases";
+    }
+
+    transformed.mainCategory = inferredCategory;
+    transformed.subcategory = inferredSubcategory;
+    console.log(`🔧 [Transform] mainCategory → inferred: "${inferredCategory}"`);
+    console.log(`🔧 [Transform] subcategory  → inferred: "${inferredSubcategory}"`);
+  }
+
+  return transformed;
+};
+
+export const aiPublishBlog = async (req: Request, res: Response) => {
+  const hasBody = req.body && Object.keys(req.body).length > 0;
+
+  if (!hasBody) {
+    return res.status(200).json({
+      status: "ok",
+      message: "TelexPH Blog AI endpoint ready",
+      note: "This endpoint auto-maps SEO Autopilot fields to our schema.",
+      field_mapping: {
+        "content (HTML)"        : "→ mainContent (auto-parsed into sections)",
+        "excerpt"               : "→ shortDescription",
+        "featured_image"        : "→ picture",
+        "slug"                  : "→ slug (used as-is)",
+        "title"                 : "→ title",
+        "status"                : "→ status",
+        "(not sent) author"     : "→ defaults to 'TelexPH Team'",
+        "(not sent) category"   : "→ mainCategory + subcategory inferred from title/keyword",
+      },
+      mainCategories: VALID_MAIN_CATEGORIES,
+      subcategories: VALID_SUBCATEGORIES,
+      statusOptions: ["published", "draft", "scheduled"],
     });
   }
-  let bodyToValidate = { ...req.body };
 
-  // Parse mainContent if stringified
-  if (typeof bodyToValidate.mainContent === 'string') {
+  console.log("🤖 ===== AI PUBLISH REQUEST =====");
+  console.log("📥 Raw body received:", JSON.stringify(req.body, null, 2));
+  console.log("📋 Fields received:", Object.keys(req.body));
+
+  // ✅ STEP 1: Transform SEO Autopilot fields → our schema fields
+  let bodyToValidate = transformSeoAutopilotPayload({ ...req.body });
+
+  // ✅ STEP 2: Parse mainContent if still a string after transform
+  if (typeof bodyToValidate.mainContent === "string") {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
     } catch (e) {
+      console.error("❌ [AI Publish] mainContent parse error:", e);
       return res.status(400).json({ error: "Invalid format for mainContent" });
     }
   }
 
-  // Clean up scheduledDate
+  // ✅ STEP 3: Clean up scheduledDate
   if (
     bodyToValidate.scheduledDate === "" ||
     bodyToValidate.scheduledDate === "null" ||
@@ -225,40 +437,83 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
     bodyToValidate.scheduledDate = undefined;
   }
 
+  // ✅ STEP 4: Normalize mainCategory + subcategory (fix case/spacing issues)
+  if (typeof bodyToValidate.mainCategory === "string") {
+    const normalized = normalizeToEnum(bodyToValidate.mainCategory, VALID_MAIN_CATEGORIES);
+    if (normalized) {
+      console.log(`🔧 [Normalize] mainCategory: "${bodyToValidate.mainCategory}" → "${normalized}"`);
+      bodyToValidate.mainCategory = normalized;
+    }
+  }
+
+  if (typeof bodyToValidate.subcategory === "string") {
+    const normalized = normalizeToEnum(bodyToValidate.subcategory, VALID_SUBCATEGORIES);
+    if (normalized) {
+      console.log(`🔧 [Normalize] subcategory: "${bodyToValidate.subcategory}" → "${normalized}"`);
+      bodyToValidate.subcategory = normalized;
+    }
+  }
+
+  console.log("🔍 [AI Publish] Body ready for validation:", JSON.stringify({
+    title: bodyToValidate.title,
+    author: bodyToValidate.author,
+    mainCategory: bodyToValidate.mainCategory,
+    subcategory: bodyToValidate.subcategory,
+    shortDescription: bodyToValidate.shortDescription?.slice(0, 80) + "...",
+    mainContentSections: Array.isArray(bodyToValidate.mainContent) ? bodyToValidate.mainContent.length : 0,
+    status: bodyToValidate.status,
+    pictureUrl: bodyToValidate.pictureUrl,
+  }, null, 2));
+
+  // ✅ STEP 5: Validate against schema
   const parsedBody = createBlogSchema.safeParse(bodyToValidate);
 
-  // ✅ PALITAN NG GANITO — always 200 pag validation fail (connection test)
   if (!parsedBody.success) {
-    return res.status(200).json({
-      status: "ok",
-      message: "TelexPH Blog AI endpoint ready",
-      required_fields: {
-        title: "string (min 3 chars)",
-        author: "string",
-        mainCategory: "Main Service Categories | Industry-Specific Insights | Business Growth & Strategy | Company Culture & Updates",
-        subcategory: "string (must match mainCategory)",
-        shortDescription: "string (min 10 chars)",
-        mainContent: "[{ title: string, content: string }]",
-        status: "published | draft | scheduled",
+    console.error("❌ [AI Publish] Validation STILL failed after transform. Issues:");
+    parsedBody.error.issues.forEach((issue, i) => {
+      console.error(`   [${i + 1}] path: ${issue.path.join(".")} | message: ${issue.message}`);
+    });
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request body does not match the expected schema even after auto-mapping.",
+      details: parsedBody.error.issues,
+      debug: {
+        title: bodyToValidate.title,
+        author: bodyToValidate.author,
+        mainCategory: bodyToValidate.mainCategory,
+        subcategory: bodyToValidate.subcategory,
+        shortDescriptionLength: bodyToValidate.shortDescription?.length ?? 0,
+        mainContentIsArray: Array.isArray(bodyToValidate.mainContent),
+        mainContentLength: Array.isArray(bodyToValidate.mainContent) ? bodyToValidate.mainContent.length : 0,
+        status: bodyToValidate.status,
       },
-      optional_fields: {
-        pictureUrl: "string (image URL)",
-        scheduledDate: "ISO datetime string (required if status = scheduled)",
-      }
     });
   }
 
   const body: CreateBlogDto = parsedBody.data;
 
   try {
-    // Use pictureUrl from JSON body, fallback to default Cloudinary image
+    // ✅ Use slug from body (Sight AI sends this), else generate from title
+    const rawSlug: string = (req.body.slug as string) || toSlug(body.title);
+
+    // ✅ Slug uniqueness check — with 5s timeout to avoid hanging
+    let finalSlug = rawSlug;
+    const existingWithSlug = await Blog.findOne({ slug: rawSlug })
+      .maxTimeMS(5000) // ✅ FIX: prevent hanging on slow DB connection
+      .exec();
+    if (existingWithSlug) {
+      finalSlug = `${rawSlug}-${Date.now()}`;
+      console.warn(`⚠️ [AI Publish] Slug collision detected. Using fallback: ${finalSlug}`);
+    }
+
+    // ✅ Picture URL: from transformed body or default
     const pictureUrl: string =
-      req.body.pictureUrl ||
+      bodyToValidate.pictureUrl ||
       "https://res.cloudinary.com/dyhytmzqk/image/upload/v1/telexph/blog-default.jpg";
 
     const newBlog = {
       ...body,
-      slug: toSlug(body.title),
+      slug: finalSlug,
       picture: pictureUrl,
       scheduledDate: body.scheduledDate ? new Date(body.scheduledDate) : undefined,
       likeCount: 0,
@@ -266,10 +521,25 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
       isArchive: false,
     };
 
-    const blog = await Blog.create(newBlog as any) as IBlog & { _id: mongoose.Types.ObjectId };
+    const blog = (await Blog.create(newBlog as any)) as IBlog & { _id: mongoose.Types.ObjectId };
 
+    console.log(`✅ [AI Publish] Blog SAVED TO DATABASE:`);
+    console.log(`   - Title    : "${blog.title}"`);
+    console.log(`   - Slug     : ${blog.slug}`);
+    console.log(`   - ID       : ${blog._id}`);
+    console.log(`   - Status   : ${blog.status}`);
+    console.log(`   - Category : ${blog.mainCategory} > ${blog.subcategory}`);
+    console.log(`   - Author   : ${blog.author}`);
+
+    console.log("🎉 ===== AI PUBLISH COMPLETE =====\n");
+
+    // ✅ FIX: Respond IMMEDIATELY — do not block on logActivity
+    // Sight AI has a short timeout; if we await logActivity first, it times out → 503
+    res.status(201).json(blog);
+
+    // 🔥 Fire-and-forget: log in background after response is already sent
     const adminEmail = getUserEmailFromRequest(req);
-    await logActivity({
+    logActivity({
       action: "CREATED",
       module: "BLOGS",
       admin: adminEmail || "AI Platform",
@@ -284,15 +554,17 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
         description: `[AI Platform] Created blog post "${blog.title}"`,
       },
       req,
-    });
+    }).catch((err) =>
+      console.error("❌ [AI Publish] Background logActivity error:", err)
+    );
 
-    res.status(201).json(blog);
   } catch (error) {
     if (error instanceof Error) {
-      console.error("AI Publish blog error:", error.message);
+      console.error("❌ AI Publish blog error:", error.message);
+      console.error("❌ Stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("AI Publish error:", error);
+      console.error("❌ AI Publish unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
@@ -353,7 +625,7 @@ export const getAllBlogs = async (req: Request, res: Response) => {
 // ============================================
 export const getBlog = async (req: Request, res: Response) => {
   console.log("\n📖 ===== GET BLOG =====");
-  
+
   await autoPublishScheduledBlogs();
 
   const parsed = getParamSchema.safeParse(req.params);
@@ -409,7 +681,7 @@ export const getBlog = async (req: Request, res: Response) => {
 // ============================================
 export const getBlogBySlug = async (req: Request, res: Response) => {
   console.log("\n🔍 ===== FETCH BLOG BY SLUG =====");
-  
+
   await autoPublishScheduledBlogs();
 
   try {
@@ -544,7 +816,7 @@ export const updateBlog = async (req: Request, res: Response) => {
     if (req.file) {
       console.log("🖼️  New file detected, uploading...");
       const result = await uploadFile(req.file);
-      
+
       if (typeof result === 'string') {
         pictureUrl = result;
       } else if (result && typeof result === 'object' && 'url' in result) {
@@ -578,11 +850,11 @@ export const updateBlog = async (req: Request, res: Response) => {
 
     console.log("🔍 UpdateData mainCategory:", updateData.mainCategory);
     console.log("🔍 UpdateData subcategory:", updateData.subcategory);
-    
+
     if (body.title) {
       updateData.slug = toSlug(body.title);
     }
-    
+
     if (hasPictureUpdate) {
       updateData.picture = pictureUrl!;
       console.log("🖼️  ========== PICTURE UPDATE ==========");
@@ -749,7 +1021,7 @@ export const likeBlog = async (req: Request, res: Response) => {
     }
 
     if (blog.likedBy.includes(userIdentifier)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: "You have already liked this blog",
         likeCount: blog.likeCount,
         hasLiked: true
@@ -760,7 +1032,7 @@ export const likeBlog = async (req: Request, res: Response) => {
     blog.likedBy.push(userIdentifier);
     await blog.save();
 
-    res.status(200).json({ 
+    res.status(200).json({
       message: "Blog liked successfully",
       likeCount: blog.likeCount,
       hasLiked: true
@@ -781,7 +1053,7 @@ export const unlikeBlog = async (req: Request, res: Response) => {
     }
 
     if (!blog.likedBy.includes(userIdentifier)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: "You haven't liked this blog yet",
         likeCount: blog.likeCount,
         hasLiked: false
@@ -792,7 +1064,7 @@ export const unlikeBlog = async (req: Request, res: Response) => {
     blog.likedBy = blog.likedBy.filter(id => id !== userIdentifier);
     await blog.save();
 
-    res.status(200).json({ 
+    res.status(200).json({
       message: "Blog unliked successfully",
       likeCount: blog.likeCount,
       hasLiked: false
@@ -814,7 +1086,7 @@ export const checkLikeStatus = async (req: Request, res: Response) => {
 
     const hasLiked = blog.likedBy.includes(userIdentifier);
 
-    res.status(200).json({ 
+    res.status(200).json({
       hasLiked,
       likeCount: blog.likeCount
     });
