@@ -541,15 +541,27 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
 
   const body: CreateBlogDto = parsedBody.data;
 
+  // ✅ Helper: wrap any promise with a hard timeout
+  const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`[TIMEOUT] ${label} exceeded ${ms}ms`)), ms)
+      ),
+    ]);
+  };
+
   try {
     // ✅ Use slug from body (Sight AI sends this), else generate from title
     const rawSlug: string = (bodyToValidate.slug as string) || toSlug(body.title);
 
-    // ✅ Slug uniqueness check — with 5s timeout to avoid hanging
+    // ✅ Slug uniqueness check — 5s max
     let finalSlug = rawSlug;
-    const existingWithSlug = await Blog.findOne({ slug: rawSlug })
-      .maxTimeMS(5000) // ✅ FIX: prevent hanging on slow DB connection
-      .exec();
+    const existingWithSlug = await withTimeout(
+      Blog.findOne({ slug: rawSlug }).maxTimeMS(5000).exec(),
+      6000,
+      "slug check"
+    );
     if (existingWithSlug) {
       finalSlug = `${rawSlug}-${Date.now()}`;
       console.warn(`⚠️ [AI Publish] Slug collision detected. Using fallback: ${finalSlug}`);
@@ -570,7 +582,12 @@ export const aiPublishBlog = async (req: Request, res: Response) => {
       isArchive: false,
     };
 
-    const blog = (await Blog.create(newBlog as any)) as IBlog & { _id: mongoose.Types.ObjectId };
+    // ✅ Blog.create with 8s hard timeout — prevents Sight AI from getting 503
+    const blog = (await withTimeout(
+      Blog.create(newBlog as any),
+      8000,
+      "Blog.create"
+    )) as IBlog & { _id: mongoose.Types.ObjectId };
 
     console.log(`✅ [AI Publish] Blog SAVED TO DATABASE:`);
     console.log(`   - Title    : "${blog.title}"`);
