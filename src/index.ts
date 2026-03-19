@@ -15,6 +15,9 @@ import activityLogRouter from "./activity-logs/activity-log.router.ts";
 import serviceRouter from "./services/service.router.ts";
 import clientRouter from "./client/client.router.ts";
 import appointmentRouter from "./appointments/appointment.router.ts";
+import applicantRouter from "./applicants/applicant.routes.ts";
+import vaUsersRouter   from "./va-users/va-users.routes.ts";
+import vaAuthRouter    from "./va-users/va-auth.routes.ts";
 
 // ============================================
 // 🌱 SEED IMPORTS
@@ -63,6 +66,18 @@ app.use("/services", serviceRouter);
 app.use("/appointments", appointmentRouter);
 app.use("/api/appointments", appointmentRouter);
 
+// 📋 VA Applicants — POST is public (form submission), admin routes protected inside router
+app.use("/applicants", applicantRouter);
+app.use("/api/applicants", applicantRouter);
+
+// 👤 VA Users — activation (public) + list (admin)
+app.use("/va-users/activate", vaUsersRouter);
+app.use("/api/va-users/activate", vaUsersRouter);
+
+// 🔐 VA Auth — login, profile, logout
+app.use("/auth/va", vaAuthRouter);
+app.use("/api/auth/va", vaAuthRouter);
+
 // ============================================
 // 🔒 PROTECTED ROUTES (JWT REQUIRED)
 // ============================================
@@ -99,6 +114,7 @@ app.get("/", (req, res) => {
           free_slots: "/api/appointments/slots?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&timezone=Asia/Manila (GET)",
           book: "/api/appointments (POST)",
         },
+        applicants_submit: "/api/applicants (POST)",
       },
       protected: {
         users: ["/users", "/api/users"],
@@ -109,6 +125,7 @@ app.get("/", (req, res) => {
         activity_logs: ["/activity-logs", "/api/activity-logs"],
         clients: ["/clients", "/api/clients"],
         appointments_manage: "/api/appointments/:appointmentId (GET/PUT/DELETE)",
+        applicants_manage: "/api/applicants (GET), /api/applicants/:id/approve (PATCH), /api/applicants/:id/reject (PATCH)",
       },
     },
   });
