@@ -2,6 +2,13 @@ import express from "express";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import dns from "node:dns"; // Import DNS module
+
+// ============================================
+// 🌐 DNS FIX FOR WINDOWS (ECONNREFUSED)
+// ============================================
+// This forces Node to use Google and Cloudflare DNS to resolve MongoDB Atlas SRV records
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 // ============================================
 // 📦 ROUTER IMPORTS
@@ -18,6 +25,9 @@ import appointmentRouter from "./appointments/appointment.router.ts";
 import applicantRouter from "./applicants/applicant.routes.ts";
 import vaUsersRouter   from "./va-users/va-users.routes.ts";
 import vaAuthRouter    from "./va-users/va-auth.routes.ts";
+import { trackSitePageView } from "./site-page-views/site-page-view.controller.ts";
+import { ingestGhlPageView } from "./ghl-page-views/ghl-page-view.controller.ts";
+import ghlFunnelClientRouter from "./ghl-page-views/ghl-page-view.routes.ts";
 
 // ============================================
 // 🌱 SEED IMPORTS
@@ -61,22 +71,24 @@ app.use("/casestudies", caseStudyRouter);
 app.use("/api/services", serviceRouter);
 app.use("/services", serviceRouter);
 
-// 📅 GHL Appointments — public (fetch slots + book)
-// Calendars list, free slots, and booking are public so website visitors can book
 app.use("/appointments", appointmentRouter);
 app.use("/api/appointments", appointmentRouter);
 
-// 📋 VA Applicants — POST is public (form submission), admin routes protected inside router
 app.use("/applicants", applicantRouter);
 app.use("/api/applicants", applicantRouter);
 
-// 👤 VA Users — activation (public) + list (admin)
 app.use("/va-users/activate", vaUsersRouter);
 app.use("/api/va-users/activate", vaUsersRouter);
 
-// 🔐 VA Auth — login, profile, logout
 app.use("/auth/va", vaAuthRouter);
 app.use("/api/auth/va", vaAuthRouter);
+
+app.post("/page-views/track", trackSitePageView);
+app.post("/api/page-views/track", trackSitePageView);
+
+// GHL Workflow webhook → funnel page views (secret header; no JWT)
+app.post("/ghl/pageview", ingestGhlPageView);
+app.post("/api/ghl/pageview", ingestGhlPageView);
 
 // ============================================
 // 🔒 PROTECTED ROUTES (JWT REQUIRED)
@@ -96,6 +108,13 @@ app.use("/api/activity-logs", verifyJwt, activityLogRouter);
 app.use("/clients", verifyJwt, clientRouter);
 app.use("/api/clients", verifyJwt, clientRouter);
 
+app.use("/client/ghl-funnel-analytics", ghlFunnelClientRouter);
+app.use("/api/client/ghl-funnel-analytics", ghlFunnelClientRouter);
+
+// Admin funnel analytics routes
+app.use("/page-views", verifyJwt, ghlFunnelClientRouter);
+app.use("/api/page-views", verifyJwt, ghlFunnelClientRouter);
+
 // ============================================
 // ℹ️ HEALTH CHECK ENDPOINT
 // ============================================
@@ -104,30 +123,6 @@ app.get("/", (req, res) => {
     message: "API is running",
     version: "1.0.0",
     status: "healthy",
-    endpoints: {
-      public: {
-        auth: ["/auth", "/api/auth"],
-        casestudies_view: "/api/casestudies (GET)",
-        services_view: "/api/services (GET)",
-        appointments: {
-          calendars: "/api/appointments/calendars (GET)",
-          free_slots: "/api/appointments/slots?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&timezone=Asia/Manila (GET)",
-          book: "/api/appointments (POST)",
-        },
-        applicants_submit: "/api/applicants (POST)",
-      },
-      protected: {
-        users: ["/users", "/api/users"],
-        blogs: ["/blogs", "/api/blogs"],
-        casestudies_manage: "/api/casestudies (POST/PATCH/DELETE)",
-        services_manage: "/api/services (POST/PATCH/DELETE)",
-        dashboard: ["/dashboard", "/api/dashboard"],
-        activity_logs: ["/activity-logs", "/api/activity-logs"],
-        clients: ["/clients", "/api/clients"],
-        appointments_manage: "/api/appointments/:appointmentId (GET/PUT/DELETE)",
-        applicants_manage: "/api/applicants (GET), /api/applicants/:id/approve (PATCH), /api/applicants/:id/reject (PATCH)",
-      },
-    },
   });
 });
 
@@ -152,5 +147,5 @@ mongoose
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
-    process.exit(1);
+    // process.exit(1); // Optional: keep it running so it can retry on file save
   });

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import Analytics from "./Analytics.ts";
 import Blog from "../blogs/Blog.ts";
 import CaseStudy from "../casestudy/CaseStudy.ts";
+import SitePageView from "../site-page-views/site-page-view.model.ts";
 import mongoose, { type Document } from "mongoose";
 import {
   getDashboardStatsSchema,
@@ -162,8 +163,34 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       },
     ]);
 
+    // Get total site page views
+    const sitePageViewStats = await SitePageView.aggregate([
+      {
+        $match: {
+          visitedAt: dateFilter,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalViews: { $sum: 1 },
+          totalUniqueVisitors: { $addToSet: "$sessionId" },
+        },
+      },
+      {
+        $project: {
+          totalViews: 1,
+          totalUniqueVisitors: { $size: "$totalUniqueVisitors" },
+        },
+      },
+    ]);
+
     res.status(200).json({
       overview: {
+        site: {
+          totalViews: sitePageViewStats[0]?.totalViews || 0,
+          totalUniqueVisitors: sitePageViewStats[0]?.totalUniqueVisitors || 0,
+        },
         blogs: {
           total: totalBlogs,
           totalViews: blogStats[0]?.totalViews || 0,
@@ -184,10 +211,12 @@ export const getDashboardStats = async (req: Request, res: Response) => {
         combined: {
           totalViews:
             (blogStats[0]?.totalViews || 0) +
-            (caseStudyStats[0]?.totalViews || 0),
+            (caseStudyStats[0]?.totalViews || 0) +
+            (sitePageViewStats[0]?.totalViews || 0),
           totalUniqueViews:
             (blogStats[0]?.totalUniqueViews || 0) +
-            (caseStudyStats[0]?.totalUniqueViews || 0),
+            (caseStudyStats[0]?.totalUniqueViews || 0) +
+            (sitePageViewStats[0]?.totalUniqueVisitors || 0),
         },
       },
       recentActivity,
