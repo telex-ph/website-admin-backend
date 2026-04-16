@@ -7,6 +7,29 @@ import {
   type GetParamDto,
 } from "../common/dto/get-param.dto.ts";
 import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
+import uploadFile from "../common/utils/upload-file.util.ts";
+
+// ============================================
+// 🖼️ HELPER: Upload image file to Cloudinary
+// ============================================
+const uploadImageFile = async (file: Express.Multer.File): Promise<string> => {
+  const result = await uploadFile(file);
+
+  let url: string | undefined;
+  if (typeof result === "string") {
+    url = result;
+  } else if (result && typeof result === "object" && "url" in result) {
+    url = (result as any).url;
+  } else if (result && typeof result === "object" && "secure_url" in result) {
+    url = (result as any).secure_url;
+  }
+
+  if (!url) {
+    throw new Error("Failed to upload image — no URL returned from Cloudinary");
+  }
+
+  return url;
+};
 
 // ============================================
 // 🆕 ADD SERVICE
@@ -25,16 +48,34 @@ export const addService = async (req: Request, res: Response) => {
   const body: CreateServiceDto = parsedBody.data;
 
   try {
+    // ✅ Handle optional image uploads (multer puts them in req.files)
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
+    let coverPhotoUrl: string | null = body.coverPhoto ?? null;
+    let inactivePhotoUrl: string | null = body.inactivePhoto ?? null;
+
+    if (files?.coverPhoto?.[0]) {
+      console.log("📤 Uploading coverPhoto to Cloudinary...");
+      coverPhotoUrl = await uploadImageFile(files.coverPhoto[0]);
+      console.log("✅ coverPhoto uploaded:", coverPhotoUrl);
+    }
+
+    if (files?.inactivePhoto?.[0]) {
+      console.log("📤 Uploading inactivePhoto to Cloudinary...");
+      inactivePhotoUrl = await uploadImageFile(files.inactivePhoto[0]);
+      console.log("✅ inactivePhoto uploaded:", inactivePhotoUrl);
+    }
+
     const newService: Partial<IService> = {
       serviceId: body.serviceId,
       name: body.name,
       description: body.description,
       badge: body.badge,
       isActive: body.isActive !== undefined ? body.isActive : false,
-      coverPhoto: body.coverPhoto ?? null,
-      inactivePhoto: body.inactivePhoto ?? null,
+      coverPhoto: coverPhotoUrl,
+      inactivePhoto: inactivePhotoUrl,
     } as any;
- 
+
     const service = await Service.create(newService);
 
     const adminEmail = getUserEmailFromRequest(req);
@@ -54,8 +95,6 @@ export const addService = async (req: Request, res: Response) => {
   } catch (error) {
     if (error instanceof Error) {
       console.error("Adding service error:", error.message);
-      // FIX: 400 is for client/validation errors only. Use 409 for duplicate key
-      // (e.g. serviceId already exists) and 500 for all other server-side failures.
       const isDuplicate = error.message.includes("duplicate key") || error.message.includes("E11000");
       res.status(isDuplicate ? 409 : 500).json({ error: error.message });
     } else {
@@ -98,20 +137,23 @@ export const getAllServices = async (req: Request, res: Response) => {
     }
 
     // FIX: allowDiskUse(true) lets MongoDB spill to disk when sorting large
-    // documents (e.g. services with base64 coverPhoto strings) that exceed the
-    // 32MB in-memory sort limit on Atlas free tier. The primary fix is the index
-    // added in Service.ts — the index means Mongo won't need to sort in memory at
-    // all for the default sort. allowDiskUse is a safety net for edge cases like
-    // ad-hoc sorts on un-indexed fields or very large result sets.
-    const services = await Service.find(filter).sort(sort).allowDiskUse(true).exec();
+    // documents that exceed the 32MB in-memory sort limit on Atlas free tier.
+    // The primary fix is the index added in Service.ts — the index means Mongo
+    // won't need to sort in memory at all for the default sort. allowDiskUse is
+    // a safety net for edge cases like ad-hoc sorts on un-indexed fields or very
+    // large result sets.
+    //
+    // NOTE: coverPhoto and inactivePhoto are now included in the list query
+    // because they are Cloudinary URLs (short strings), not base64 blobs.
+    // The frontend ServicesGrid needs these fields to display service images.
+    const services = await Service.find(filter)
+      .sort(sort)
+      .allowDiskUse(true)
+      .exec();
+
     res.status(200).json(services);
   } catch (error) {
     if (error instanceof Error) {
-      // FIX: was 400 — but a failed DB query is a server error (500), not a bad
-      // client request (400). Returning 400 here was the root cause of "Failed to
-      // fetch" on the frontend: when Mongoose threw (e.g. MongoNotConnectedError
-      // because the server accepted requests before the DB was ready), the catch
-      // block sent 400, which made response.ok === false → frontend threw the error.
       console.error("getAllServices error:", error.message);
       res.status(500).json({ error: error.message });
     } else {
@@ -142,7 +184,6 @@ export const getService = async (req: Request, res: Response) => {
     }
     res.status(200).json(service);
   } catch (error) {
-    // FIX: was 400 — should be 500 for DB/server failures
     console.error("getService error:", error);
     res.status(500).json({ error: "Error fetching service" });
   }
@@ -162,7 +203,6 @@ export const getServiceByServiceId = async (req: Request, res: Response) => {
     }
     res.status(200).json(service);
   } catch (error) {
-    // FIX: was 400 — should be 500 for DB/server failures
     console.error("getServiceByServiceId error:", error);
     res.status(500).json({ error: "Error fetching service by serviceId" });
   }
@@ -197,6 +237,9 @@ export const updateService = async (req: Request, res: Response) => {
 
     const oldData = { ...existingService.toObject() };
 
+    // ✅ Handle optional image uploads
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
     const updateData: Partial<IService> = {} as any;
 
     if (body.serviceId !== undefined) updateData.serviceId = body.serviceId;
@@ -205,12 +248,27 @@ export const updateService = async (req: Request, res: Response) => {
     if (body.badge !== undefined) updateData.badge = body.badge;
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
-    // ✅ FIX: use !== undefined instead of "in" operator — Zod strips absent keys from
-    // its parsed output, so "coverPhoto" in body is false even when the client sends
-    // coverPhoto: null explicitly. With !== undefined, null is correctly treated as
-    // "clear the photo" and the field is properly included in the update.
-    if (body.coverPhoto !== undefined) updateData.coverPhoto = (body.coverPhoto ?? null) as any;
-    if (body.inactivePhoto !== undefined) updateData.inactivePhoto = (body.inactivePhoto ?? null) as any;
+    // ✅ If a new file was uploaded, upload to Cloudinary and use the URL.
+    // If no file uploaded but body field is present (e.g. null to clear), use body value.
+    if (files?.coverPhoto?.[0]) {
+      console.log("📤 Uploading new coverPhoto to Cloudinary...");
+      const url = await uploadImageFile(files.coverPhoto[0]);
+      console.log("✅ coverPhoto uploaded:", url);
+      updateData.coverPhoto = url as any;
+    } else if (body.coverPhoto !== undefined) {
+      // Empty string from FormData means "clear the photo"
+      updateData.coverPhoto = (body.coverPhoto === "" ? null : body.coverPhoto ?? null) as any;
+    }
+
+    if (files?.inactivePhoto?.[0]) {
+      console.log("📤 Uploading new inactivePhoto to Cloudinary...");
+      const url = await uploadImageFile(files.inactivePhoto[0]);
+      console.log("✅ inactivePhoto uploaded:", url);
+      updateData.inactivePhoto = url as any;
+    } else if (body.inactivePhoto !== undefined) {
+      // Empty string from FormData means "clear the photo"
+      updateData.inactivePhoto = (body.inactivePhoto === "" ? null : body.inactivePhoto ?? null) as any;
+    }
 
     const updatedService = await Service.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -234,8 +292,6 @@ export const updateService = async (req: Request, res: Response) => {
     res.status(200).json(updatedService);
   } catch (error) {
     if (error instanceof Error) {
-      // FIX: was 400 — validation errors are already handled above via Zod.
-      // Anything thrown here is a DB/server error → 500.
       console.error("updateService error:", error.message);
       res.status(500).json({ error: error.message });
     } else {
@@ -288,7 +344,6 @@ export const toggleServiceStatus = async (req: Request, res: Response) => {
     res.status(200).json(service);
   } catch (error) {
     if (error instanceof Error) {
-      // FIX: was 400 — should be 500 for DB/server failures
       console.error("toggleServiceStatus error:", error.message);
       res.status(500).json({ error: error.message });
     } else {
@@ -322,7 +377,6 @@ export const deleteService = async (req: Request, res: Response) => {
 
     res.status(200).json({ message: "Service deleted successfully", data: service });
   } catch (error) {
-    // FIX: was 400 — should be 500 for DB/server failures
     console.error("deleteService error:", error);
     res.status(500).json({
       error: error instanceof Error ? error.message : "Error deleting service",

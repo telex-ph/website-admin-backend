@@ -11,6 +11,7 @@ import { Types } from "mongoose";
 import uploadFile from "../common/utils/upload-file.util.ts";
 import { trackView } from "../common/services/analytics.service.ts";
 import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.ts";
+import mongoose from "mongoose";
 
 // ============================================
 // 📋 ACTIVITY LOG HELPERS
@@ -37,7 +38,6 @@ const buildBlogChanges = (
     if (!(field in BLOG_FIELD_LABELS)) continue;
     const oldVal = oldData[field] ?? null;
     const newVal = newData[field] ?? null;
-    // Only include if value actually changed
     if (String(oldVal) === String(newVal)) continue;
     changes.push({
       field,
@@ -52,18 +52,15 @@ const buildBlogChanges = (
 
 const getUserIdentifier = (req: Request): string => {
   const forwarded = req.headers['x-forwarded-for'];
-  const ip = forwarded 
+  const ip = forwarded
     ? (typeof forwarded === 'string' ? (forwarded.split(',')[0] ?? 'unknown') : (forwarded[0] ?? 'unknown'))
     : req.socket.remoteAddress || 'unknown';
-  
   return ip;
 };
 
 const autoPublishScheduledBlogs = async () => {
   try {
     const now = new Date();
-    
-    // Find all blogs with status "scheduled" and scheduledDate that has passed
     const scheduledBlogs = await Blog.find({
       status: "scheduled",
       scheduledDate: { $lte: now }
@@ -71,13 +68,10 @@ const autoPublishScheduledBlogs = async () => {
 
     if (scheduledBlogs.length > 0) {
       console.log(`📅 [AUTO-PUBLISH] Found ${scheduledBlogs.length} scheduled blog(s) ready to publish`);
-      
       for (const blog of scheduledBlogs) {
         try {
-          // Update status to published
           blog.status = "published";
           await blog.save();
-          
           console.log(`✅ [AUTO-PUBLISH] Published: "${blog.title}" (ID: ${blog._id})`);
           console.log(`   - Scheduled Date: ${blog.scheduledDate}`);
           console.log(`   - Published At: ${now}`);
@@ -92,12 +86,12 @@ const autoPublishScheduledBlogs = async () => {
 };
 
 
-// Adding blog
+// ============================================
+// ➕ ADD BLOG (Admin Panel - with file upload)
+// ============================================
 export const addBlog = async (req: Request, res: Response) => {
-  // --- PRE-VALIDATION LOGIC PARA SA FORMDATA ---
   let bodyToValidate = { ...req.body };
 
-  // 1. FIX: I-parse ang mainContent pabalik sa Array (kasi stringified ito sa FormData)
   if (typeof bodyToValidate.mainContent === 'string') {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
@@ -106,12 +100,10 @@ export const addBlog = async (req: Request, res: Response) => {
     }
   }
 
-  // 2. FIX: I-handle ang empty strings mula sa FormData para sa optional/nullable fields
   if (bodyToValidate.scheduledDate === "" || bodyToValidate.scheduledDate === "null" || bodyToValidate.scheduledDate === "undefined") {
     bodyToValidate.scheduledDate = undefined;
   }
 
-  // Validate the body gamit ang nilinis na data
   const parsedBody = createBlogSchema.safeParse(bodyToValidate);
 
   if (!parsedBody.success) {
@@ -125,14 +117,12 @@ export const addBlog = async (req: Request, res: Response) => {
   const body: CreateBlogDto = parsedBody.data;
 
   try {
-    // 3. HANDLE IMAGE UPLOAD (required for new blog)
     if (!req.file) {
       return res.status(400).json({ error: "Picture is required" });
     }
 
     const result = await uploadFile(req.file);
-    
-    // Handle different return types from uploadFile
+
     let pictureUrl: string;
     if (typeof result === 'string') {
       pictureUrl = result;
@@ -152,7 +142,6 @@ export const addBlog = async (req: Request, res: Response) => {
 
     console.log("✅ Picture URL obtained:", pictureUrl);
 
-    // Create blog with uploaded picture
     const newBlog: Partial<IBlog> = {
       ...body,
       slug: toSlug(body.title),
@@ -165,7 +154,6 @@ export const addBlog = async (req: Request, res: Response) => {
 
     const blog = await Blog.create(newBlog);
 
-    // 🔴 LOG ACTIVITY - Blog Created
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "CREATED",
@@ -196,24 +184,472 @@ export const addBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching all blogs with filtering and search
+
+// ============================================
+// 🤖 AI PLATFORM PUBLISH (JSON - no file upload)
+// ============================================
+
+const VALID_MAIN_CATEGORIES = [
+  "Main Service Categories",
+  "Industry-Specific Insights",
+  "Business Growth & Strategy",
+  "Company Culture & Updates",
+] as const;
+
+const VALID_SUBCATEGORIES = [
+  "Customer Experience (CX)",
+  "Back Office Solutions",
+  "Virtual Assistance",
+  "Sales & Lead Generation",
+  "E-commerce Support",
+  "Real Estate Outsourcing",
+  "Healthcare BPO",
+  "Tech & SaaS Scaling",
+  "Scale Smarter",
+  "Outsourcing 101",
+  "Cost Optimization",
+  "TelexPH Life",
+  "News & Press Releases",
+] as const;
+
+const normalizeToEnum = <T extends string>(
+  input: string,
+  validValues: readonly T[]
+): T | null => {
+  if (!input) return null;
+  const trimmed = input.trim();
+  const exactMatch = validValues.find((v) => v === trimmed);
+  if (exactMatch) return exactMatch;
+  const caseInsensitive = validValues.find(
+    (v) => v.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (caseInsensitive) return caseInsensitive;
+  return null;
+};
+
+/**
+ * ✅ AI PLATFORM PAYLOAD TRANSFORMER
+ *
+ * FORMAT A — Sight AI (nested article object):
+ *   body.article.title          → title
+ *   body.article.summary        → shortDescription
+ *   body.article.content        → mainContent
+ *   body.article.slug           → slug
+ *   body.article.main_image_url → pictureUrl
+ *   body.article.author_name    → author
+ *
+ * FORMAT B — SEO Autopilot (flat body):
+ *   body.content        → mainContent
+ *   body.excerpt        → shortDescription
+ *   body.featured_image → pictureUrl
+ */
+const transformSeoAutopilotPayload = (body: Record<string, any>): Record<string, any> => {
+  const transformed = { ...body };
+
+  // ============================================
+  // 🤖 SIGHT AI — Unwrap nested article object
+  // ============================================
+  if (body.article && typeof body.article === "object") {
+    const article = body.article;
+    console.log("🔧 [Transform] Sight AI format detected — unwrapping article object");
+
+    if (!transformed.title && article.title) {
+      transformed.title = article.title;
+      console.log(`🔧 [Transform] title → from article.title: "${article.title}"`);
+    }
+    if (!transformed.slug && article.slug) {
+      transformed.slug = article.slug;
+      console.log(`🔧 [Transform] slug → from article.slug`);
+    }
+    if (!transformed.author && article.author_name) {
+      transformed.author = article.author_name;
+      console.log(`🔧 [Transform] author → from article.author_name: "${article.author_name}"`);
+    }
+    if (!transformed.shortDescription) {
+      const desc = article.summary || article.seo_meta_description || "";
+      if (desc) {
+        transformed.shortDescription = desc.trim().slice(0, 300);
+        console.log(`🔧 [Transform] shortDescription → from article.summary`);
+      }
+    }
+    if (!transformed.content && article.content) {
+      transformed.content = article.content;
+      console.log(`🔧 [Transform] content → from article.content`);
+    }
+    if (!transformed.pictureUrl && !transformed.picture) {
+      const imageUrl = article.main_image_url || article.thumbnail_image_url || "";
+      if (imageUrl) {
+        transformed.pictureUrl = imageUrl;
+        console.log(`🔧 [Transform] pictureUrl → from article.main_image_url`);
+      }
+    }
+    if (!transformed.focus_keyword && article.target_keyword) {
+      transformed.focus_keyword = article.target_keyword;
+    }
+    if (!transformed.status) {
+      transformed.status = "published";
+      console.log(`🔧 [Transform] status → defaulted to "published"`);
+    }
+  }
+
+  // ============================================
+  // 🔧 COMMON TRANSFORMS (both formats)
+  // ============================================
+
+  // --- author fallback ---
+  if (!transformed.author) {
+    transformed.author = "TelexPH Team";
+    console.log(`🔧 [Transform] author → defaulted to "TelexPH Team"`);
+  }
+
+  // --- shortDescription fallback ---
+  if (!transformed.shortDescription) {
+    const fallback = transformed.excerpt || transformed.meta_description || "";
+    if (fallback) {
+      transformed.shortDescription = fallback.trim().slice(0, 300);
+      console.log(`🔧 [Transform] shortDescription → mapped from excerpt/meta_description`);
+    }
+  }
+
+  // --- pictureUrl fallback ---
+  if (!transformed.pictureUrl && !transformed.picture) {
+    const imageUrl =
+      transformed.featured_image ||
+      transformed.featured_image_url ||
+      "https://res.cloudinary.com/dyhytmzqk/image/upload/v1/telexph/blog-default.jpg";
+    transformed.pictureUrl = imageUrl;
+    console.log(`🔧 [Transform] pictureUrl → fallback: "${imageUrl}"`);
+  }
+
+  // --- mainContent ---
+  if (!transformed.mainContent && transformed.content) {
+    const htmlContent = transformed.content as string;
+    const sections: { title: string; content: string }[] = [];
+
+    const h2Regex = /<h2[^>]*>(.*?)<\/h2>([\s\S]*?)(?=<h2|$)/gi;
+    let match;
+    while ((match = h2Regex.exec(htmlContent)) !== null) {
+      const sectionTitle = match[1]?.replace(/<[^>]+>/g, "").trim() || "Section";
+      const sectionContent = match[2]?.trim() || "";
+      if (sectionTitle && sectionContent) {
+        sections.push({ title: sectionTitle, content: sectionContent });
+      }
+    }
+
+    if (sections.length === 0) {
+      sections.push({
+        title: transformed.title || "Content",
+        content: htmlContent,
+      });
+    }
+
+    transformed.mainContent = sections;
+    console.log(`🔧 [Transform] mainContent → built from HTML (${sections.length} section(s))`);
+  }
+
+  // --- mainCategory + subcategory ---
+  if (!transformed.mainCategory) {
+    const keyword = (transformed.focus_keyword || "").toLowerCase();
+    const titleLower = (transformed.title || "").toLowerCase();
+
+    let inferredCategory: typeof VALID_MAIN_CATEGORIES[number] = "Business Growth & Strategy";
+    let inferredSubcategory: typeof VALID_SUBCATEGORIES[number] = "Scale Smarter";
+
+    if (
+      keyword.includes("customer") || keyword.includes("cx") || keyword.includes("support") ||
+      titleLower.includes("customer") || titleLower.includes("support")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Customer Experience (CX)";
+    } else if (
+      keyword.includes("virtual") || keyword.includes("assistant") ||
+      titleLower.includes("virtual assistant")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Virtual Assistance";
+    } else if (
+      keyword.includes("sales") || keyword.includes("lead") ||
+      titleLower.includes("sales") || titleLower.includes("lead generation")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Sales & Lead Generation";
+    } else if (
+      keyword.includes("back office") || keyword.includes("back-office") ||
+      titleLower.includes("back office")
+    ) {
+      inferredCategory = "Main Service Categories";
+      inferredSubcategory = "Back Office Solutions";
+    } else if (
+      keyword.includes("ecommerce") || keyword.includes("e-commerce") || keyword.includes("shopify") ||
+      titleLower.includes("ecommerce") || titleLower.includes("e-commerce")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "E-commerce Support";
+    } else if (
+      keyword.includes("real estate") || titleLower.includes("real estate")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "Real Estate Outsourcing";
+    } else if (
+      keyword.includes("healthcare") || keyword.includes("medical") ||
+      titleLower.includes("healthcare") || titleLower.includes("medical")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "Healthcare BPO";
+    } else if (
+      keyword.includes("saas") || keyword.includes("tech") || keyword.includes("software") ||
+      titleLower.includes("saas") || titleLower.includes("tech")
+    ) {
+      inferredCategory = "Industry-Specific Insights";
+      inferredSubcategory = "Tech & SaaS Scaling";
+    } else if (
+      keyword.includes("outsourc") || titleLower.includes("outsourc")
+    ) {
+      inferredCategory = "Business Growth & Strategy";
+      inferredSubcategory = "Outsourcing 101";
+    } else if (
+      keyword.includes("cost") || keyword.includes("saving") ||
+      titleLower.includes("cost") || titleLower.includes("saving")
+    ) {
+      inferredCategory = "Business Growth & Strategy";
+      inferredSubcategory = "Cost Optimization";
+    } else if (
+      keyword.includes("culture") || keyword.includes("telex life") ||
+      titleLower.includes("telex life") || titleLower.includes("our team")
+    ) {
+      inferredCategory = "Company Culture & Updates";
+      inferredSubcategory = "TelexPH Life";
+    } else if (
+      keyword.includes("news") || keyword.includes("press") || keyword.includes("announcement") ||
+      titleLower.includes("announcement") || titleLower.includes("press release")
+    ) {
+      inferredCategory = "Company Culture & Updates";
+      inferredSubcategory = "News & Press Releases";
+    }
+
+    transformed.mainCategory = inferredCategory;
+    transformed.subcategory = inferredSubcategory;
+    console.log(`🔧 [Transform] mainCategory → inferred: "${inferredCategory}"`);
+    console.log(`🔧 [Transform] subcategory  → inferred: "${inferredSubcategory}"`);
+  }
+
+  return transformed;
+};
+
+export const aiPublishBlog = async (req: Request, res: Response) => {
+  const hasBody = req.body && Object.keys(req.body).length > 0;
+
+  if (!hasBody) {
+    return res.status(200).json({
+      status: "ok",
+      message: "TelexPH Blog AI endpoint ready",
+      note: "This endpoint auto-maps SEO Autopilot fields to our schema.",
+      field_mapping: {
+        "content (HTML)"        : "→ mainContent (auto-parsed into sections)",
+        "excerpt"               : "→ shortDescription",
+        "featured_image"        : "→ picture",
+        "slug"                  : "→ slug (used as-is)",
+        "title"                 : "→ title",
+        "status"                : "→ status",
+        "(not sent) author"     : "→ defaults to 'TelexPH Team'",
+        "(not sent) category"   : "→ mainCategory + subcategory inferred from title/keyword",
+      },
+      mainCategories: VALID_MAIN_CATEGORIES,
+      subcategories: VALID_SUBCATEGORIES,
+      statusOptions: ["published", "draft", "scheduled"],
+    });
+  }
+
+  console.log("🤖 ===== AI PUBLISH REQUEST =====");
+  console.log("📥 Raw body received:", JSON.stringify(req.body, null, 2));
+  console.log("📋 Fields received:", Object.keys(req.body));
+
+  // ✅ STEP 1: Transform SEO Autopilot fields → our schema fields
+  let bodyToValidate = transformSeoAutopilotPayload({ ...req.body });
+
+  // ✅ STEP 2: Parse mainContent if still a string after transform
+  if (typeof bodyToValidate.mainContent === "string") {
+    try {
+      bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
+    } catch (e) {
+      console.error("❌ [AI Publish] mainContent parse error:", e);
+      return res.status(400).json({ error: "Invalid format for mainContent" });
+    }
+  }
+
+  // ✅ STEP 3: Clean up scheduledDate
+  if (
+    bodyToValidate.scheduledDate === "" ||
+    bodyToValidate.scheduledDate === "null" ||
+    bodyToValidate.scheduledDate === "undefined"
+  ) {
+    bodyToValidate.scheduledDate = undefined;
+  }
+
+  // ✅ STEP 4: Normalize mainCategory + subcategory (fix case/spacing issues)
+  if (typeof bodyToValidate.mainCategory === "string") {
+    const normalized = normalizeToEnum(bodyToValidate.mainCategory, VALID_MAIN_CATEGORIES);
+    if (normalized) {
+      console.log(`🔧 [Normalize] mainCategory: "${bodyToValidate.mainCategory}" → "${normalized}"`);
+      bodyToValidate.mainCategory = normalized;
+    }
+  }
+
+  if (typeof bodyToValidate.subcategory === "string") {
+    const normalized = normalizeToEnum(bodyToValidate.subcategory, VALID_SUBCATEGORIES);
+    if (normalized) {
+      console.log(`🔧 [Normalize] subcategory: "${bodyToValidate.subcategory}" → "${normalized}"`);
+      bodyToValidate.subcategory = normalized;
+    }
+  }
+
+  console.log("🔍 [AI Publish] Body ready for validation:", JSON.stringify({
+    title: bodyToValidate.title,
+    author: bodyToValidate.author,
+    mainCategory: bodyToValidate.mainCategory,
+    subcategory: bodyToValidate.subcategory,
+    shortDescription: bodyToValidate.shortDescription?.slice(0, 80) + "...",
+    mainContentSections: Array.isArray(bodyToValidate.mainContent) ? bodyToValidate.mainContent.length : 0,
+    status: bodyToValidate.status,
+    pictureUrl: bodyToValidate.pictureUrl,
+  }, null, 2));
+
+  // ✅ STEP 5: Validate against schema
+  const parsedBody = createBlogSchema.safeParse(bodyToValidate);
+
+  if (!parsedBody.success) {
+    console.error("❌ [AI Publish] Validation STILL failed after transform. Issues:");
+    parsedBody.error.issues.forEach((issue, i) => {
+      console.error(`   [${i + 1}] path: ${issue.path.join(".")} | message: ${issue.message}`);
+    });
+    return res.status(400).json({
+      error: "Validation failed",
+      message: "Request body does not match the expected schema even after auto-mapping.",
+      details: parsedBody.error.issues,
+      debug: {
+        title: bodyToValidate.title,
+        author: bodyToValidate.author,
+        mainCategory: bodyToValidate.mainCategory,
+        subcategory: bodyToValidate.subcategory,
+        shortDescriptionLength: bodyToValidate.shortDescription?.length ?? 0,
+        mainContentIsArray: Array.isArray(bodyToValidate.mainContent),
+        mainContentLength: Array.isArray(bodyToValidate.mainContent) ? bodyToValidate.mainContent.length : 0,
+        status: bodyToValidate.status,
+      },
+    });
+  }
+
+  const body: CreateBlogDto = parsedBody.data;
+
+  // ✅ Helper: wrap any promise with a hard timeout
+  const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`[TIMEOUT] ${label} exceeded ${ms}ms`)), ms)
+      ),
+    ]);
+  };
+
+  try {
+    // ✅ Use slug from body (Sight AI sends this), else generate from title
+    const rawSlug: string = (bodyToValidate.slug as string) || toSlug(body.title);
+
+    // ✅ Slug uniqueness check — 5s max
+    let finalSlug = rawSlug;
+    const existingWithSlug = await withTimeout(
+      Blog.findOne({ slug: rawSlug }).maxTimeMS(5000).exec(),
+      6000,
+      "slug check"
+    );
+    if (existingWithSlug) {
+      finalSlug = `${rawSlug}-${Date.now()}`;
+      console.warn(`⚠️ [AI Publish] Slug collision detected. Using fallback: ${finalSlug}`);
+    }
+
+    // ✅ Picture URL: from transformed body or default
+    const pictureUrl: string =
+      bodyToValidate.pictureUrl ||
+      "https://res.cloudinary.com/dyhytmzqk/image/upload/v1/telexph/blog-default.jpg";
+
+    const newBlog = {
+      ...body,
+      slug: finalSlug,
+      picture: pictureUrl,
+      scheduledDate: body.scheduledDate ? new Date(body.scheduledDate) : undefined,
+      likeCount: 0,
+      likedBy: [],
+      isArchive: false,
+    };
+
+    // ✅ Blog.create with 8s hard timeout — prevents Sight AI from getting 503
+    const blog = (await withTimeout(
+      Blog.create(newBlog as any),
+      8000,
+      "Blog.create"
+    )) as IBlog & { _id: mongoose.Types.ObjectId };
+
+    console.log(`✅ [AI Publish] Blog SAVED TO DATABASE:`);
+    console.log(`   - Title    : "${blog.title}"`);
+    console.log(`   - Slug     : ${blog.slug}`);
+    console.log(`   - ID       : ${blog._id}`);
+    console.log(`   - Status   : ${blog.status}`);
+    console.log(`   - Category : ${blog.mainCategory} > ${blog.subcategory}`);
+    console.log(`   - Author   : ${blog.author}`);
+
+    console.log("🎉 ===== AI PUBLISH COMPLETE =====\n");
+
+    // ✅ FIX: Respond IMMEDIATELY — do not block on logActivity
+    // Sight AI has a short timeout; if we await logActivity first, it times out → 503
+    res.status(201).json(blog);
+
+    // 🔥 Fire-and-forget: log in background after response is already sent
+    const adminEmail = getUserEmailFromRequest(req);
+    logActivity({
+      action: "CREATED",
+      module: "BLOGS",
+      admin: adminEmail || "AI Platform",
+      details: {
+        blogId: blog._id.toString(),
+        title: blog.title,
+        slug: blog.slug,
+        status: blog.status,
+        mainCategory: blog.mainCategory,
+        subcategory: blog.subcategory,
+        author: blog.author,
+        description: `[AI Platform] Created blog post "${blog.title}"`,
+      },
+      req,
+    }).catch((err) =>
+      console.error("❌ [AI Publish] Background logActivity error:", err)
+    );
+
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("❌ AI Publish blog error:", error.message);
+      console.error("❌ Stack:", error.stack);
+      res.status(400).json({ error: error.message });
+    } else {
+      console.error("❌ AI Publish unknown error:", error);
+      res.status(400).json({ error: "Unknown error occurred" });
+    }
+  }
+};
+
+
+// ============================================
+// 📋 GET ALL BLOGS
+// ============================================
 export const getAllBlogs = async (req: Request, res: Response) => {
   try {
-    // 📅 AUTO-PUBLISH SCHEDULED BLOGS
-    // Check and automatically publish any scheduled blogs that have reached their scheduled date
     await autoPublishScheduledBlogs();
 
-    // Extract query parameters for filtering
     const { search, mainCategory, subcategory, status, author, sortBy, order, includeArchived } = req.query;
 
-    // Build dynamic filter object
-    // If includeArchived=true, show ONLY archived blogs (for the archive management page)
-    // Otherwise only show non-archived blogs
     const filter: any = includeArchived === "true"
       ? { isArchive: true }
       : { isArchive: { $ne: true } };
 
-    // Search in title, short description, and main content
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: "i" } },
@@ -223,37 +659,19 @@ export const getAllBlogs = async (req: Request, res: Response) => {
       ];
     }
 
-    // Filter by main category
-    if (mainCategory) {
-      filter.mainCategory = mainCategory;
-    }
+    if (mainCategory) filter.mainCategory = mainCategory;
+    if (subcategory) filter.subcategory = subcategory;
+    if (status) filter.status = status;
+    if (author) filter.author = author;
 
-    // Filter by subcategory
-    if (subcategory) {
-      filter.subcategory = subcategory;
-    }
-
-    // Filter by status
-    if (status) {
-      filter.status = status;
-    }
-
-    // Filter by author
-    if (author) {
-      filter.author = author;
-    }
-
-    // Build sort object
     const sort: any = {};
     if (sortBy) {
       sort[sortBy as string] = order === "desc" ? -1 : 1;
     } else {
-      sort.createdAt = -1; // Default sort by newest
+      sort.createdAt = -1;
     }
 
-    const blogs = await Blog.find(filter)
-      .sort(sort)
-      .exec();
+    const blogs = await Blog.find(filter).sort(sort).exec();
 
     res.status(200).json(blogs);
   } catch (error: unknown) {
@@ -267,14 +685,15 @@ export const getAllBlogs = async (req: Request, res: Response) => {
   }
 };
 
-// Fetching single blog by ID with view tracking
+
+// ============================================
+// 📖 GET SINGLE BLOG BY ID
+// ============================================
 export const getBlog = async (req: Request, res: Response) => {
   console.log("\n📖 ===== GET BLOG =====");
-  
-  // 📅 AUTO-PUBLISH SCHEDULED BLOGS
+
   await autoPublishScheduledBlogs();
 
-  // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -289,7 +708,6 @@ export const getBlog = async (req: Request, res: Response) => {
   console.log("📋 Fetching blog with ID:", param.id);
 
   try {
-    // Search for the id
     const blog = await Blog.findById(param.id).exec();
 
     if (!blog) {
@@ -299,7 +717,6 @@ export const getBlog = async (req: Request, res: Response) => {
 
     console.log("✅ Found blog:", blog.title);
 
-    // 👁️ Track view - UPDATED TO USE CORRECT SIGNATURE
     try {
       await trackView({
         resourceType: 'blog',
@@ -309,7 +726,6 @@ export const getBlog = async (req: Request, res: Response) => {
       console.log("✅ View tracked successfully");
     } catch (viewError) {
       console.error("⚠️ Error tracking view (non-critical):", viewError instanceof Error ? viewError.message : viewError);
-      // Don't fail the request if view tracking fails
     }
 
     console.log("🎉 ===== END GET BLOG =====\n");
@@ -318,21 +734,20 @@ export const getBlog = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("❌ GET BLOG ERROR:", error);
     if (error instanceof Error) {
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
 };
 
-// Fetching blog by slug with view tracking
+
+// ============================================
+// 🔍 GET BLOG BY SLUG
+// ============================================
 export const getBlogBySlug = async (req: Request, res: Response) => {
   console.log("\n🔍 ===== FETCH BLOG BY SLUG =====");
-  
-  // 📅 AUTO-PUBLISH SCHEDULED BLOGS
+
   await autoPublishScheduledBlogs();
 
   try {
@@ -343,7 +758,6 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Slug parameter is required" });
     }
 
-    // Search for blog by slug
     const blog = await Blog.findOne({ slug }).exec();
 
     if (!blog) {
@@ -353,7 +767,6 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
 
     console.log("✅ Found blog:", blog.title);
 
-    // 👁️ Track view - UPDATED TO USE CORRECT SIGNATURE
     try {
       await trackView({
         resourceType: 'blog',
@@ -363,7 +776,6 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
       console.log("✅ View tracked successfully");
     } catch (viewError) {
       console.error("⚠️ Error tracking view (non-critical):", viewError instanceof Error ? viewError.message : viewError);
-      // Don't fail the request if view tracking fails
     }
 
     console.log("🎉 ===== END FETCH BLOG BY SLUG =====\n");
@@ -372,17 +784,17 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("❌ FETCH BY SLUG ERROR:", error);
     if (error instanceof Error) {
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
       res.status(400).json({ error: error.message });
     } else {
-      console.error("Unknown error:", error);
       res.status(400).json({ error: "Unknown error occurred" });
     }
   }
 };
 
-// Updating blog
+
+// ============================================
+// 🔄 UPDATE BLOG
+// ============================================
 export const updateBlog = async (req: Request, res: Response) => {
   console.log("🔄 ========== UPDATE BLOG REQUEST ==========");
   console.log("📥 Request body:", JSON.stringify(req.body, null, 2));
@@ -395,12 +807,10 @@ export const updateBlog = async (req: Request, res: Response) => {
     });
   }
 
-  // --- PRE-VALIDATION LOGIC PARA SA FORMDATA ---
   let bodyToValidate = { ...req.body };
 
   console.log("🔍 RAW body before parsing:", bodyToValidate);
 
-  // 1. FIX: I-parse ang mainContent pabalik sa Array (kasi stringified ito sa FormData)
   if (typeof bodyToValidate.mainContent === 'string') {
     try {
       bodyToValidate.mainContent = JSON.parse(bodyToValidate.mainContent);
@@ -410,16 +820,13 @@ export const updateBlog = async (req: Request, res: Response) => {
     }
   }
 
-  // 2. FIX: I-handle ang empty strings mula sa FormData para sa optional/nullable fields
-  // ⚠️ IMPORTANT: Explicitly handle scheduled date removal
   if (bodyToValidate.scheduledDate === "" || bodyToValidate.scheduledDate === "null" || bodyToValidate.scheduledDate === "undefined") {
-    bodyToValidate.scheduledDate = null; // Explicitly set to null to trigger removal
+    bodyToValidate.scheduledDate = null;
     console.log("🗑️  ScheduledDate set to null (will be removed)");
   }
 
   console.log("🔍 Body after preprocessing:", JSON.stringify(bodyToValidate, null, 2));
 
-  // Validate the body gamit ang nilinis na data
   const parsedBody = updateBlogSchema.safeParse(bodyToValidate);
 
   if (!parsedBody.success) {
@@ -434,7 +841,6 @@ export const updateBlog = async (req: Request, res: Response) => {
   const body: UpdateBlogDto = parsedBody.data;
   console.log("✅ Validated body:", JSON.stringify(body, null, 2));
 
-  // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -448,7 +854,6 @@ export const updateBlog = async (req: Request, res: Response) => {
   console.log("📋 Updating blog with ID:", param.id);
 
   try {
-    // Get existing blog FIRST para ma-compare natin ang data
     const existingBlog = await Blog.findById(param.id).exec();
     if (!existingBlog) {
       return res.status(404).json({ error: "Blog not found" });
@@ -460,7 +865,6 @@ export const updateBlog = async (req: Request, res: Response) => {
     console.log("   - Status:", existingBlog.status);
     console.log("   - ScheduledDate:", existingBlog.scheduledDate);
 
-    // Store old data for activity log
     const oldData = {
       title: existingBlog.title,
       slug: existingBlog.slug,
@@ -472,15 +876,13 @@ export const updateBlog = async (req: Request, res: Response) => {
       picture: existingBlog.picture,
     };
 
-    // 3. HANDLE IMAGE UPLOAD (optional for update)
     let pictureUrl: string | undefined;
     let hasPictureUpdate = false;
 
     if (req.file) {
       console.log("🖼️  New file detected, uploading...");
       const result = await uploadFile(req.file);
-      
-      // Handle different return types from uploadFile
+
       if (typeof result === 'string') {
         pictureUrl = result;
       } else if (result && typeof result === 'object' && 'url' in result) {
@@ -501,10 +903,8 @@ export const updateBlog = async (req: Request, res: Response) => {
       hasPictureUpdate = true;
     }
 
-    // Build update object
     const updateData: Partial<IBlog> = {} as any;
 
-    // Only add fields that are provided in the request
     if (body.title !== undefined) updateData.title = body.title;
     if (body.author !== undefined) updateData.author = body.author;
     if (body.mainCategory !== undefined) updateData.mainCategory = body.mainCategory;
@@ -516,39 +916,32 @@ export const updateBlog = async (req: Request, res: Response) => {
 
     console.log("🔍 UpdateData mainCategory:", updateData.mainCategory);
     console.log("🔍 UpdateData subcategory:", updateData.subcategory);
-    
-    // If title is being updated, regenerate slug
+
     if (body.title) {
       updateData.slug = toSlug(body.title);
     }
-    
-    // ✅ FIX: Always update picture if there's a new upload
+
     if (hasPictureUpdate) {
       updateData.picture = pictureUrl!;
       console.log("🖼️  ========== PICTURE UPDATE ==========");
       console.log("🖼️  Old picture:", existingBlog.picture);
       console.log("🖼️  New picture:", pictureUrl);
-      console.log("🖼️  Pictures are different?:", existingBlog.picture !== pictureUrl);
     } else {
       console.log("🖼️  Picture remains unchanged:", existingBlog.picture);
     }
 
     console.log("📝 Final update data:", JSON.stringify(updateData, null, 2));
 
-    // Convert scheduledDate string to Date if present, or explicitly set to undefined if null
     if (updateData.scheduledDate !== undefined) {
       if (updateData.scheduledDate === null) {
-        // Explicitly remove scheduledDate from the document
         delete (updateData as any).scheduledDate;
         console.log("🗑️  Removing scheduledDate (set to undefined)");
       } else {
-        // Convert string to Date object
         updateData.scheduledDate = new Date(updateData.scheduledDate);
         console.log("📅 Updated scheduledDate:", updateData.scheduledDate);
       }
     }
 
-    // Search for the id and update
     const blog = await Blog.findByIdAndUpdate(param.id, updateData, {
       new: true,
       runValidators: true,
@@ -560,12 +953,7 @@ export const updateBlog = async (req: Request, res: Response) => {
 
     console.log("✅ ========== UPDATE COMPLETE ==========");
     console.log("✅ Blog updated successfully!");
-    console.log("📊 Final blog state:");
-    console.log("   - Title:", blog.title);
-    console.log("   - Picture:", blog.picture);
-    console.log("   - Status:", blog.status);
 
-    // 🔴 LOG ACTIVITY - Blog Updated
     const adminEmail = getUserEmailFromRequest(req);
     const newData = {
       title: blog.title,
@@ -617,9 +1005,11 @@ export const updateBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Archiving blog (soft delete)
+
+// ============================================
+// 🗄️ ARCHIVE BLOG (soft delete)
+// ============================================
 export const archiveBlog = async (req: Request, res: Response) => {
-  // Check the params using Zod/validation
   const parsed = getParamSchema.safeParse(req.params);
 
   if (!parsed.success) {
@@ -632,18 +1022,15 @@ export const archiveBlog = async (req: Request, res: Response) => {
   const param: GetParamDto = parsed.data;
 
   try {
-    // Get existing blog for activity log before archiving
     const existingBlog = await Blog.findById(param.id).exec();
     if (!existingBlog) {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Check if blog is already archived
     if (existingBlog.isArchive) {
       return res.status(400).json({ error: "Blog is already archived" });
     }
 
-    // Set isArchive to true instead of deleting
     const blog = await Blog.findByIdAndUpdate(
       param.id,
       { isArchive: true },
@@ -654,7 +1041,6 @@ export const archiveBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // 🔴 LOG ACTIVITY - Blog Archived
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "DELETED",
@@ -686,11 +1072,10 @@ export const archiveBlog = async (req: Request, res: Response) => {
   }
 };
 
-// ============================================
-// 🆕 LIKE/UNLIKE FUNCTIONALITY
-// ============================================
 
-// Like a blog
+// ============================================
+// 🆕 LIKE / UNLIKE FUNCTIONALITY
+// ============================================
 export const likeBlog = async (req: Request, res: Response) => {
   try {
     const blogId = req.params.id;
@@ -701,21 +1086,19 @@ export const likeBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Blog not found" });
     }
 
-    // Check if user already liked this blog
     if (blog.likedBy.includes(userIdentifier)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: "You have already liked this blog",
         likeCount: blog.likeCount,
         hasLiked: true
       });
     }
 
-    // Add like
     blog.likeCount += 1;
     blog.likedBy.push(userIdentifier);
     await blog.save();
 
-    res.status(200).json({ 
+    res.status(200).json({
       message: "Blog liked successfully",
       likeCount: blog.likeCount,
       hasLiked: true
@@ -725,7 +1108,6 @@ export const likeBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Unlike a blog
 export const unlikeBlog = async (req: Request, res: Response) => {
   try {
     const blogId = req.params.id;
@@ -736,21 +1118,19 @@ export const unlikeBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Blog not found" });
     }
 
-    // Check if user has liked this blog
     if (!blog.likedBy.includes(userIdentifier)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: "You haven't liked this blog yet",
         likeCount: blog.likeCount,
         hasLiked: false
       });
     }
 
-    // Remove like
     blog.likeCount -= 1;
     blog.likedBy = blog.likedBy.filter(id => id !== userIdentifier);
     await blog.save();
 
-    res.status(200).json({ 
+    res.status(200).json({
       message: "Blog unliked successfully",
       likeCount: blog.likeCount,
       hasLiked: false
@@ -760,7 +1140,6 @@ export const unlikeBlog = async (req: Request, res: Response) => {
   }
 };
 
-// Check if user has liked a blog
 export const checkLikeStatus = async (req: Request, res: Response) => {
   try {
     const blogId = req.params.id;
@@ -773,7 +1152,7 @@ export const checkLikeStatus = async (req: Request, res: Response) => {
 
     const hasLiked = blog.likedBy.includes(userIdentifier);
 
-    res.status(200).json({ 
+    res.status(200).json({
       hasLiked,
       likeCount: blog.likeCount
     });
@@ -781,10 +1160,11 @@ export const checkLikeStatus = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+
 // ============================================
 // 🔄 RESTORE BLOG (unarchive)
 // ============================================
-
 export const restoreBlog = async (req: Request, res: Response) => {
   const parsed = getParamSchema.safeParse(req.params);
 
@@ -803,12 +1183,10 @@ export const restoreBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // Check if blog is actually archived
     if (!existingBlog.isArchive) {
       return res.status(400).json({ error: "Blog is not archived" });
     }
 
-    // Set isArchive to false to restore
     const blog = await Blog.findByIdAndUpdate(
       param.id,
       { isArchive: false },
@@ -819,7 +1197,6 @@ export const restoreBlog = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Blog not found" });
     }
 
-    // 🟢 LOG ACTIVITY - Blog Restored
     const adminEmail = getUserEmailFromRequest(req);
     await logActivity({
       action: "RESTORED" as ActivityAction,

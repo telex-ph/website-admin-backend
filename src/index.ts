@@ -2,6 +2,13 @@ import express from "express";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import dns from "node:dns"; // Import DNS module
+
+// ============================================
+// 🌐 DNS FIX FOR WINDOWS (ECONNREFUSED)
+// ============================================
+// This forces Node to use Google and Cloudflare DNS to resolve MongoDB Atlas SRV records
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 // ============================================
 // 📦 ROUTER IMPORTS
@@ -14,6 +21,14 @@ import dashboardRouter from "./dashboard/dashboard.router.ts";
 import activityLogRouter from "./activity-logs/activity-log.router.ts";
 import serviceRouter from "./services/service.router.ts";
 import pageViewRouter from "./page-views/page-view.router.ts";
+import clientRouter from "./client/client.router.ts";
+import appointmentRouter from "./appointments/appointment.router.ts";
+import applicantRouter from "./applicants/applicant.routes.ts";
+import vaUsersRouter   from "./va-users/va-users.routes.ts";
+import vaAuthRouter    from "./va-users/va-auth.routes.ts";
+import { trackSitePageView } from "./site-page-views/site-page-view.controller.ts";
+import { ingestGhlPageView } from "./ghl-page-views/ghl-page-view.controller.ts";
+import ghlFunnelClientRouter from "./ghl-page-views/ghl-page-view.routes.ts";
 
 // ============================================
 // 🌱 SEED IMPORTS
@@ -24,48 +39,28 @@ import { seedPageViews } from "./page-views/seed-page-views.ts";
 // ============================================
 // 🔐 MIDDLEWARE IMPORTS
 // ============================================
-// FIX: import must always be at the top of the file — never inside the body
 import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
 
 const app = express();
 const port = process.env.PORT || 5000;
 
 // ============================================
-// 🔧 CORE MIDDLEWARE — MUST BE BEFORE ALL ROUTES
+// 🔧 CORE MIDDLEWARE
 // ============================================
-// FIX: cors → json → urlencoded → cookieParser must ALL be registered
-// before any route or debug logger. Previously cookieParser was registered
-// AFTER the debug logger and routes, so req.cookies was always empty
-// when verifyJwt ran → every protected request returned 400/401
-// even when the user was properly logged in.
-
 app.use(
   cors({
     origin: ["http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3000", "http://127.0.0.1:3000"],
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"],
   })
 );
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser()); // ← must be here so req.cookies is populated before any route runs
-
-// ============================================
-// 🛠 DEBUG LOGGING (remove in production)
-// ============================================
-// FIX: logger is now AFTER cookieParser so req.cookies is actually readable
-app.use((req, res, next) => {
-  console.log("📨 Request:", {
-    method: req.method,
-    url: req.url,
-    path: req.path,
-    hasAuthHeader: !!req.headers.authorization,
-    hasCookie: !!req.cookies?.accessToken, // now correctly populated
-  });
-  next();
-});
+app.use(cookieParser());
 
 // ============================================
 // 🔓 PUBLIC ROUTES (NO AUTHENTICATION)
@@ -76,9 +71,27 @@ app.use("/api/auth", authRouter);
 app.use("/api/casestudies", caseStudyRouter);
 app.use("/casestudies", caseStudyRouter);
 
-// Services: GET routes are public, POST/PATCH/DELETE are protected inside service.router.ts
 app.use("/api/services", serviceRouter);
 app.use("/services", serviceRouter);
+
+app.use("/appointments", appointmentRouter);
+app.use("/api/appointments", appointmentRouter);
+
+app.use("/applicants", applicantRouter);
+app.use("/api/applicants", applicantRouter);
+
+app.use("/va-users/activate", vaUsersRouter);
+app.use("/api/va-users/activate", vaUsersRouter);
+
+app.use("/auth/va", vaAuthRouter);
+app.use("/api/auth/va", vaAuthRouter);
+
+app.post("/page-views/track", trackSitePageView);
+app.post("/api/page-views/track", trackSitePageView);
+
+// GHL Workflow webhook → funnel page views (secret header; no JWT)
+app.post("/ghl/pageview", ingestGhlPageView);
+app.post("/api/ghl/pageview", ingestGhlPageView);
 
 // ============================================
 // 🔒 PROTECTED ROUTES (JWT REQUIRED)
@@ -98,6 +111,15 @@ app.use("/api/activity-logs", verifyJwt, activityLogRouter);
 // Page Views: GET routes are public, POST is protected
 app.use("/api/page-views", pageViewRouter);
 app.use("/page-views", pageViewRouter);
+app.use("/clients", verifyJwt, clientRouter);
+app.use("/api/clients", verifyJwt, clientRouter);
+
+app.use("/client/ghl-funnel-analytics", ghlFunnelClientRouter);
+app.use("/api/client/ghl-funnel-analytics", ghlFunnelClientRouter);
+
+// Admin funnel analytics routes
+app.use("/page-views", verifyJwt, ghlFunnelClientRouter);
+app.use("/api/page-views", verifyJwt, ghlFunnelClientRouter);
 
 // ============================================
 // ℹ️ HEALTH CHECK ENDPOINT
@@ -107,35 +129,12 @@ app.get("/", (req, res) => {
     message: "API is running",
     version: "1.0.0",
     status: "healthy",
-    endpoints: {
-      public: {
-        auth: ["/auth", "/api/auth"],
-        casestudies_view: "/api/casestudies (GET)",
-        services_view: "/api/services (GET)",
-      },
-      protected: {
-        users: ["/users", "/api/users"],
-        blogs: ["/blogs", "/api/blogs"],
-        casestudies_manage: "/api/casestudies (POST/PATCH/DELETE)",
-        services_manage: "/api/services (POST/PATCH/DELETE)",
-        dashboard: ["/dashboard", "/api/dashboard"],
-        activity_logs: ["/activity-logs", "/api/activity-logs"],
-      },
-    },
   });
 });
 
 // ============================================
 // 📊 MONGODB CONNECTION → START SERVER
 // ============================================
-// FIX: app.listen is now INSIDE the .then() callback so the server only
-// accepts requests AFTER MongoDB is fully connected. Previously the server
-// started listening immediately (before the async connect resolved), so any
-// request that arrived during the connection window would call Service.find()
-// on an unconnected client → Mongoose threw MongoNotConnectedError → caught
-// by the controller's catch block → returned 400. Moving listen() here
-// guarantees MongoDB is ready before the first request is ever processed.
-
 const mongoUri: string = process.env.MONGO_URI || "";
 
 if (!mongoUri) {
@@ -147,8 +146,6 @@ mongoose
   .connect(mongoUri)
   .then(async () => {
     console.log("✅ Connected to MongoDB");
-
-    // 🌱 Seed default services if the collection is empty
     await seedServices();
 
     // 🌱 Seed sample page views if the collection is empty
@@ -157,41 +154,9 @@ mongoose
     // 🚀 Only start listening AFTER the DB is confirmed ready
     app.listen(port, () => {
       console.log(`🚀 Backend is running on http://localhost:${port}`);
-      console.log(`🌐 Frontend URL: http://localhost:3001`);
-      console.log(`✅ CORS + cookieParser ready`);
-      console.log(`\n📋 Public Routes:`);
-      console.log(`   - POST /api/auth/authenticate`);
-      console.log(`   - POST /api/auth/refresh`);
-      console.log(`   - POST /api/auth/logout`);
-      console.log(`   - GET  /api/casestudies (view all)`);
-      console.log(`   - GET  /api/casestudies/:id (view single)`);
-      console.log(`   - GET  /api/casestudies/fetch/:slug (view by slug)`);
-      console.log(`   - GET  /api/services (view all services)`);
-      console.log(`   - GET  /api/services/:id (view single service)`);
-      console.log(`   - GET  /api/services/fetch/:serviceId (view by serviceId)`);
-      console.log(`\n🔒 Protected Routes (require JWT):`);
-      console.log(`   - POST   /api/services (create service)`);
-      console.log(`   - PATCH  /api/services/:id/toggle (toggle service status)`);
-      console.log(`   - PATCH  /api/services/:id (update service)`);
-      console.log(`   - DELETE /api/services/:id (delete service)`);
-      console.log(`   - POST   /api/blogs (create blog)`);
-      console.log(`   - GET    /api/blogs (get all blogs)`);
-      console.log(`   - GET    /api/blogs/:id (get single blog)`);
-      console.log(`   - PATCH  /api/blogs/:id (update blog)`);
-      console.log(`   - DELETE /api/blogs/:id (delete blog)`);
-      console.log(`   - POST   /api/casestudies (create)`);
-      console.log(`   - PATCH  /api/casestudies/:id (update)`);
-      console.log(`   - DELETE /api/casestudies/:id (delete)`);
-      console.log(`   - GET    /api/activity-logs (get all logs)`);
-      console.log(`   - GET    /api/activity-logs/stats (get statistics)`);
-      console.log(`   - GET    /api/activity-logs/:id (get single log)`);
-      console.log(`   - GET    /api/activity-logs/admin/:email (get logs by admin)`);
-      console.log(`   - DELETE /api/activity-logs/cleanup (delete old logs)`);
-      console.log(`   - All /api/users routes`);
-      console.log(`   - All /api/dashboard routes`);
     });
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
-    process.exit(1);
+    // process.exit(1); // Optional: keep it running so it can retry on file save
   });
