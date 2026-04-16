@@ -20,6 +20,7 @@ import caseStudyRouter from "./casestudy/casestudy.router.ts";
 import dashboardRouter from "./dashboard/dashboard.router.ts";
 import activityLogRouter from "./activity-logs/activity-log.router.ts";
 import serviceRouter from "./services/service.router.ts";
+import pageViewRouter from "./page-views/page-view.router.ts";
 import clientRouter from "./client/client.router.ts";
 import appointmentRouter from "./appointments/appointment.router.ts";
 import applicantRouter from "./applicants/applicant.routes.ts";
@@ -33,6 +34,7 @@ import ghlFunnelClientRouter from "./ghl-page-views/ghl-page-view.routes.ts";
 // 🌱 SEED IMPORTS
 // ============================================
 import { seedServices } from "./services/seed-services.ts";
+import { seedPageViews } from "./page-views/seed-page-views.ts";
 
 // ============================================
 // 🔐 MIDDLEWARE IMPORTS
@@ -40,13 +42,14 @@ import { seedServices } from "./services/seed-services.ts";
 import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 5000;
 
 // ============================================
 // 🔧 CORE MIDDLEWARE
 // ============================================
 app.use(
   cors({
+    origin: ["http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3000", "http://127.0.0.1:3000"],
     origin: (origin, callback) => {
       callback(null, true);
     },
@@ -105,6 +108,9 @@ app.use("/api/dashboard", verifyJwt, dashboardRouter);
 app.use("/activity-logs", verifyJwt, activityLogRouter);
 app.use("/api/activity-logs", verifyJwt, activityLogRouter);
 
+// Page Views: GET routes are public, POST is protected
+app.use("/api/page-views", pageViewRouter);
+app.use("/page-views", pageViewRouter);
 app.use("/clients", verifyJwt, clientRouter);
 app.use("/api/clients", verifyJwt, clientRouter);
 
@@ -141,6 +147,11 @@ mongoose
   .then(async () => {
     console.log("✅ Connected to MongoDB");
     await seedServices();
+
+    // 🌱 Seed sample page views if the collection is empty
+    await seedPageViews();
+
+    // 🚀 Only start listening AFTER the DB is confirmed ready
     app.listen(port, () => {
       console.log(`🚀 Backend is running on http://localhost:${port}`);
     });
