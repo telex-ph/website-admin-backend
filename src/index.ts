@@ -13,11 +13,13 @@ import caseStudyRouter from "./casestudy/casestudy.router.ts";
 import dashboardRouter from "./dashboard/dashboard.router.ts";
 import activityLogRouter from "./activity-logs/activity-log.router.ts";
 import serviceRouter from "./services/service.router.ts";
+import pageViewRouter from "./page-views/page-view.router.ts";
 
 // ============================================
 // 🌱 SEED IMPORTS
 // ============================================
 import { seedServices } from "./services/seed-services.ts";
+import { seedPageViews } from "./page-views/seed-page-views.ts";
 
 // ============================================
 // 🔐 MIDDLEWARE IMPORTS
@@ -26,7 +28,7 @@ import { seedServices } from "./services/seed-services.ts";
 import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 5000;
 
 // ============================================
 // 🔧 CORE MIDDLEWARE — MUST BE BEFORE ALL ROUTES
@@ -39,7 +41,7 @@ const port = 3000;
 
 app.use(
   cors({
-    origin: "http://localhost:3001",
+    origin: ["http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3000", "http://127.0.0.1:3000"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -93,6 +95,10 @@ app.use("/api/dashboard", verifyJwt, dashboardRouter);
 app.use("/activity-logs", verifyJwt, activityLogRouter);
 app.use("/api/activity-logs", verifyJwt, activityLogRouter);
 
+// Page Views: GET routes are public, POST is protected
+app.use("/api/page-views", pageViewRouter);
+app.use("/page-views", pageViewRouter);
+
 // ============================================
 // ℹ️ HEALTH CHECK ENDPOINT
 // ============================================
@@ -144,6 +150,9 @@ mongoose
 
     // 🌱 Seed default services if the collection is empty
     await seedServices();
+
+    // 🌱 Seed sample page views if the collection is empty
+    await seedPageViews();
 
     // 🚀 Only start listening AFTER the DB is confirmed ready
     app.listen(port, () => {
