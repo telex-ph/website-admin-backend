@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { PageView } from './page-view.model.ts';
+import { PageView } from './page-view.model.js';
 
 const router = Router();
 

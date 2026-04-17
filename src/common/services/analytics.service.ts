@@ -1,5 +1,5 @@
-import Analytics from "../../dashboard/Analytics.ts";
-import SitePageView from "../../site-page-views/site-page-view.model.ts";
+import Analytics from "../../dashboard/Analytics.js";
+import SitePageView from "../../site-page-views/site-page-view.model.js";
 import type { Request } from "express";
 
 interface TrackViewParams {

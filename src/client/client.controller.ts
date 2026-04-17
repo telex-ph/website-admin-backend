@@ -1,13 +1,13 @@
 import type { Request, Response } from "express";
-import { createClientSchema, type CreateClientDto } from "./dto/create-client.dto.ts";
-import { updateClientSchema, type UpdateClientDto } from "./dto/update-client.dto.ts";
+import { createClientSchema, type CreateClientDto } from "./dto/create-client.dto.js";
+import { updateClientSchema, type UpdateClientDto } from "./dto/update-client.dto.js";
 import {
   getParamSchema,
   type GetParamDto,
-} from "../common/dto/get-param.dto.ts";
+} from "../common/dto/get-param.dto.js";
 import bcrypt from "bcrypt";
-import Client from "./Client.ts";
-import ActivityLog from "../activity-logs/Activitylog.ts";
+import Client from "./Client.js";
+import ActivityLog from "../activity-logs/Activitylog.js";
 
 // ─── Activity Log Helper ──────────────────────────────────────────────────────
 

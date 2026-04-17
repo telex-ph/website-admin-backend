@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
-import Analytics from "./Analytics.ts";
-import Blog from "../blogs/Blog.ts";
-import CaseStudy from "../casestudy/CaseStudy.ts";
-import SitePageView from "../site-page-views/site-page-view.model.ts";
+import Analytics from "./Analytics.js";
+import Blog from "../blogs/Blog.js";
+import CaseStudy from "../casestudy/CaseStudy.js";
+import SitePageView from "../site-page-views/site-page-view.model.js";
 import mongoose, { type Document } from "mongoose";
 import {
   getDashboardStatsSchema,
@@ -13,7 +13,7 @@ import {
   type GetTopResourcesDto,
   getEngagementMetricsSchema,
   type GetEngagementMetricsDto,
-} from "./dto/dashboard.dto.ts";
+} from "./dto/dashboard.dto.js";
 
 // Type for the populated resource
 type PopulatedResource = Document & {

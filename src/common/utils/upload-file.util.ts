@@ -1,4 +1,4 @@
-import cloudinaryUpload from "../../common/configs/cloudinary.ts";
+import cloudinaryUpload from "../../common/configs/cloudinary.js";
 
 const uploadFile = async (file: Express.Multer.File) => {
   const result = await cloudinaryUpload(file.buffer, {

@@ -5,11 +5,11 @@ import {
   getAllApplicants,
   getApplicantById,
   updateApplicantStatus,
-} from './applicant.service.ts';
-import { sendMail }           from '../common/mailer.ts';
-import { buildApprovalEmail } from './applicant-approved.email.ts';
-import { buildRejectionEmail } from './applicant-rejected.email.ts';
-import VAUser from '../va-users/VAUser.model.ts';
+} from './applicant.service.js';
+import { sendMail }           from '../common/mailer.js';
+import { buildApprovalEmail } from './applicant-approved.email.js';
+import { buildRejectionEmail } from './applicant-rejected.email.js';
+import VAUser from '../va-users/VAUser.model.js';
 
 const ACTIVATION_EXPIRY_HOURS = 48;
 

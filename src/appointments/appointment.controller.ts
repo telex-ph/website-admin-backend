@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 import type { Request, Response } from "express";
-import Appointment, { type IAppointment } from "./appointment.model.ts";
-import { createAppointmentSchema, type CreateAppointmentDto } from "./dto/create-appointment.dto.ts";
-import { updateAppointmentSchema, type UpdateAppointmentDto } from "./dto/update-appointment.dto.ts";
-import Client from "../client/Client.ts";
+import Appointment, { type IAppointment } from "./appointment.model.js";
+import { createAppointmentSchema, type CreateAppointmentDto } from "./dto/create-appointment.dto.js";
+import { updateAppointmentSchema, type UpdateAppointmentDto } from "./dto/update-appointment.dto.js";
+import Client from "../client/Client.js";
 import bcrypt from "bcrypt";
 import nodemailer from "nodemailer";
 import { google } from "googleapis";

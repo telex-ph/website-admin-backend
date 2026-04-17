@@ -1,7 +1,7 @@
 // src/va-users/va-users.controller.ts
 import type { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
-import VAUser from './VAUser.model.ts';
+import VAUser from './VAUser.model.js';
 
 // ── GET /va-users/activate?token=xxx ─────────────────────────────────────────
 export const validateActivationToken = async (req: Request, res: Response): Promise<void> => {

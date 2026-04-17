@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import GhlPageView from "./ghl-page-view.model.ts";
+import GhlPageView from "./ghl-page-view.model.js";
 
 function verifyGhlWebhookSecret(req: Request): boolean {
   const expected = process.env.GHL_WEBHOOK_SECRET?.trim();
@@ -99,7 +99,6 @@ export const getFunnelsAnalytics = async (
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    // Aggregate funnel data
     const funnelAggregation = await GhlPageView.aggregate([
       {
         $match: {
@@ -122,7 +121,7 @@ export const getFunnelsAnalytics = async (
           url: "$_id",
           name: { $ifNull: ["$name", "Unknown Funnel"] },
           views: 1,
-          unique: { $size: "$unique" },
+          uniqueCount: { $size: "$unique" },
           conversions: {
             $size: {
               $filter: {
@@ -133,18 +132,19 @@ export const getFunnelsAnalytics = async (
           },
           convRate: {
             $multiply: [
-              { $divide: [
-                {
-                  $size: {
-                    $filter: {
-                      input: "$unique",
-                      cond: { $ne: ["$$this", "unknown"] }
+              {
+                $divide: [
+                  {
+                    $size: {
+                      $filter: {
+                        input: "$unique",
+                        cond: { $ne: ["$$this", "unknown"] }
+                      }
                     }
-                  }
-                },
-                { $size: "$unique" }
-              ]
-            },
+                  },
+                  { $size: "$unique" }
+                ]
+              },
               100
             ]
           },
@@ -155,10 +155,9 @@ export const getFunnelsAnalytics = async (
       { $sort: { views: -1 } }
     ]);
 
-    // Add previous period comparison
     const previousStartDate = new Date(startDate);
     previousStartDate.setDate(previousStartDate.getDate() - days);
-    
+
     const previousAggregation = await GhlPageView.aggregate([
       {
         $match: {
@@ -174,24 +173,29 @@ export const getFunnelsAnalytics = async (
       }
     ]);
 
-    const previousViews = previousAggregation.reduce((acc, item) => {
-      acc[item._id] = item.views;
-      return acc;
-    }, {});
+    const previousViews = previousAggregation.reduce(
+      (acc: Record<string, number>, item: { _id: string; views: number }) => {
+        acc[item._id] = item.views;
+        return acc;
+      },
+      {}
+    );
 
-    // Calculate change percentage and assign colors
     const colors = ["#4F46E5", "#0D9488", "#7C3AED", "#F59E0B", "#EC4899"];
-    const funnels = funnelAggregation.map((funnel, index) => {
+    const funnels = funnelAggregation.map((funnel: any, index: number) => {
       const previousViewsCount = previousViews[funnel.url] || 0;
-      const change = previousViewsCount > 0 
-        ? Math.round(((funnel.views - previousViewsCount) / previousViewsCount) * 100)
-        : 0;
+      const change =
+        previousViewsCount > 0
+          ? Math.round(
+              ((funnel.views - previousViewsCount) / previousViewsCount) * 100
+            )
+          : 0;
 
       return {
         name: funnel.name,
         url: funnel.url,
         views: funnel.views,
-        unique: funnel.unique,
+        unique: funnel.uniqueCount,
         conversions: funnel.conversions,
         convRate: Number(funnel.convRate.toFixed(2)),
         change,
@@ -207,7 +211,7 @@ export const getFunnelsAnalytics = async (
 };
 
 /**
- * GET /api/page-views/funnels/:url - Individual funnel time series data
+ * GET /api/page-views/funnels/:pageUrl - Individual funnel time series data
  */
 export const getFunnelDetailAnalytics = async (
   req: AuthedRequest,
@@ -216,17 +220,23 @@ export const getFunnelDetailAnalytics = async (
   try {
     if (!requireAdmin(req, res)) return;
 
-    const { url } = req.params;
+    const rawParam = req.params["pageUrl"];
+    const rawUrl = Array.isArray(rawParam) ? rawParam[0] : rawParam;
+    if (!rawUrl) {
+      return res.status(400).json({ error: "url param is required" });
+    }
+
+    const pageUrl = decodeURIComponent(rawUrl);
+
     const { range = "30d" } = req.query;
     const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    // Daily aggregation for the specific funnel
     const dailyData = await GhlPageView.aggregate([
       {
         $match: {
-          pageUrl: decodeURIComponent(url),
+          pageUrl,
           viewedAt: { $gte: startDate }
         }
       },
@@ -239,15 +249,7 @@ export const getFunnelDetailAnalytics = async (
             }
           },
           views: { $sum: 1 },
-          unique: { $addToSet: "$contactId" },
-          conversions: {
-            $size: {
-              $filter: {
-                input: { $addToSet: "$contactId" },
-                cond: { $ne: ["$$this", "unknown"] }
-              }
-            }
-          }
+          unique: { $addToSet: "$contactId" }
         }
       },
       {
@@ -255,15 +257,24 @@ export const getFunnelDetailAnalytics = async (
           date: "$_id",
           views: 1,
           unique: { $size: "$unique" },
-          conversions: 1
+          conversions: {
+            $size: {
+              $filter: {
+                input: "$unique",
+                cond: { $ne: ["$$this", "unknown"] }
+              }
+            }
+          }
         }
       },
       { $sort: { date: 1 } }
     ]);
 
-    // Calculate totals
     const totals = dailyData.reduce(
-      (acc, day) => ({
+      (
+        acc: { views: number; unique: number; conversions: number },
+        day: any
+      ) => ({
         views: acc.views + day.views,
         unique: acc.unique + day.unique,
         conversions: acc.conversions + day.conversions
@@ -272,10 +283,10 @@ export const getFunnelDetailAnalytics = async (
     );
 
     return res.status(200).json({
-      daily: dailyData.map(day => ({
-        date: new Date(day.date).toLocaleDateString("en", { 
-          month: "short", 
-          day: "numeric" 
+      daily: dailyData.map((day: any) => ({
+        date: new Date(day.date).toLocaleDateString("en", {
+          month: "short",
+          day: "numeric"
         }),
         views: day.views,
         unique: day.unique,
@@ -307,25 +318,27 @@ export const getGhlFunnelClientDashboard = async (
           .limit(50)
           .lean()
           .exec(),
-        GhlPageView.distinct("contactId"),
+        (GhlPageView.distinct as (field: string) => Promise<string[]>)(
+          "contactId"
+        ),
         GhlPageView.countDocuments({
-          pageVisited: { $regex: /checkout/i },
+          pageVisited: { $regex: /checkout/i }
         }),
         GhlPageView.aggregate<{ _id: string; count: number }>([
           { $group: { _id: "$pageVisited", count: { $sum: 1 } } },
           { $sort: { count: -1 } },
-          { $limit: 30 },
-        ]),
+          { $limit: 30 }
+        ])
       ]);
 
-    const recentActivity = pageViews.slice(0, 20).map((d) => ({
+    const recentActivity = pageViews.slice(0, 20).map((d: any) => ({
       id: String(d._id),
       contactName: d.contactName,
       contactEmail: d.contactEmail,
       pageVisited: d.pageVisited,
       funnelName: d.funnelName,
       pageUrl: d.pageUrl,
-      viewedAt: d.viewedAt,
+      viewedAt: d.viewedAt
     }));
 
     return res.status(200).json({
@@ -333,10 +346,10 @@ export const getGhlFunnelClientDashboard = async (
       uniqueContacts: uniqueIds.length,
       checkoutViews,
       recentActivity,
-      pageBreakdown: pageBreakdown.map((p) => ({
+      pageBreakdown: pageBreakdown.map((p: { _id: string; count: number }) => ({
         page: p._id || "(empty)",
-        count: p.count,
-      })),
+        count: p.count
+      }))
     });
   } catch (e) {
     console.error("getGhlFunnelClientDashboard:", e);

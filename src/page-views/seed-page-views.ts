@@ -1,4 +1,4 @@
-import { PageView } from './page-view.model.ts';
+import { PageView } from './page-view.model.js';
 import mongoose from 'mongoose';
 
 export async function seedPageViews() {

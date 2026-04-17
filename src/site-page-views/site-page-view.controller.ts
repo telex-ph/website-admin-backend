@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
-import SitePageView from "./site-page-view.model.ts";
-import { resolvePageMeta } from "./site-page-view.meta.ts";
+import SitePageView from "./site-page-view.model.js";
+import { resolvePageMeta } from "./site-page-view.meta.js";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "30d": 30, "90d": 90 };
 
@@ -38,14 +38,10 @@ function trafficSource(referrer: string, siteHost: string): string {
   const site = siteHost.toLowerCase().replace(/^www\./, "");
   if (site && (h === site || h === `www.${site}` || h.endsWith(`.${site}`)))
     return "Direct";
-  if (
-    /google\.|bing\.|duckduckgo\.|yahoo\.|yandex\.|baidu\./i.test(h)
-  )
+  if (/google\.|bing\.|duckduckgo\.|yahoo\.|yandex\.|baidu\./i.test(h))
     return "Organic Search";
   if (
-    /facebook|fb\.|twitter|t\.co|instagram|linkedin|tiktok|pinterest|reddit/i.test(
-      h
-    )
+    /facebook|fb\.|twitter|t\.co|instagram|linkedin|tiktok|pinterest|reddit/i.test(h)
   )
     return "Social";
   if (url.searchParams.get("utm_medium")?.toLowerCase() === "email")
@@ -109,9 +105,7 @@ export const trackSitePageView = async (req: Request, res: Response) => {
       typeof body.sessionId === "string" ? body.sessionId.trim() : "";
     const email = typeof body.email === "string" ? body.email.trim() : "";
     if (!pagePath || !sessionId) {
-      return res.status(400).json({
-        error: "path and sessionId are required",
-      });
+      return res.status(400).json({ error: "path and sessionId are required" });
     }
     if (pagePath.length > 2048 || sessionId.length > 200 || email.length > 200) {
       return res.status(400).json({ error: "payload too large" });
@@ -148,11 +142,11 @@ export const trackSitePageView = async (req: Request, res: Response) => {
   }
 };
 
-async function viewsInRange(start: Date, end: Date, extraMatch: object = {}) {
+async function viewsInRange(start: Date, end: Date, extraMatch: Record<string, unknown> = {}) {
   return SitePageView.find({
     visitedAt: { $gte: start, $lte: end },
     ...extraMatch,
-  })
+  } as any)
     .lean()
     .exec();
 }
@@ -189,10 +183,9 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
   try {
     const rangeParam = String(req.query.range || "30d");
     const days = RANGE_DAYS[rangeParam] ?? 30;
-    const siteHost = (process.env.FRONTEND_SITE_HOST || "telexph.com").replace(
-      /^https?:\/\//,
-      ""
-    ).split("/")[0] || "telexph.com";
+    const siteHost = (process.env.FRONTEND_SITE_HOST || "telexph.com")
+      .replace(/^https?:\/\//, "")
+      .split("/")[0] || "telexph.com";
 
     const end = new Date();
     const start = addDays(startOfUtcDay(end), -(days - 1));
@@ -205,10 +198,7 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
     ]);
 
     const dailySlots = buildDailyLabels(start, end, days);
-    const dailyMap = new Map<
-      string,
-      { views: number; unique: Set<string> }
-    >();
+    const dailyMap = new Map<string, { views: number; unique: Set<string> }>();
     for (const s of dailySlots) {
       dailyMap.set(s.key, { views: 0, unique: new Set() });
     }
@@ -229,10 +219,7 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
       }
       sessionIds.add(d.sessionId);
       sessionDayPairs.add(`${d.sessionId}|${dayKey}`);
-      viewsBySession.set(
-        d.sessionId,
-        (viewsBySession.get(d.sessionId) || 0) + 1
-      );
+      viewsBySession.set(d.sessionId, (viewsBySession.get(d.sessionId) || 0) + 1);
 
       const src = trafficSource(d.referrer || "", siteHost);
       sourceCount.set(src, (sourceCount.get(src) || 0) + 1);
@@ -259,16 +246,13 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
       if (cnt === 1) bounceSessions += 1;
     }
     const totalSessions = viewsBySession.size || 1;
-    const bounceRate =
-      Math.round((bounceSessions / totalSessions) * 1000) / 10;
+    const bounceRate = Math.round((bounceSessions / totalSessions) * 1000) / 10;
 
     const totalViews = currentDocs.length;
     const uniqueVisitors = sessionIds.size;
     const sessionVisits = sessionDayPairs.size;
     const avgPagesPerVisit =
-      uniqueVisitors > 0
-        ? Math.round((totalViews / uniqueVisitors) * 10) / 10
-        : 0;
+      uniqueVisitors > 0 ? Math.round((totalViews / uniqueVisitors) * 10) / 10 : 0;
 
     const prevViews = prevDocs.length;
     const prevSessionIds = new Set(prevDocs.map((d) => d.sessionId));
@@ -276,10 +260,7 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
 
     const prevViewsBySession = new Map<string, number>();
     for (const d of prevDocs) {
-      prevViewsBySession.set(
-        d.sessionId,
-        (prevViewsBySession.get(d.sessionId) || 0) + 1
-      );
+      prevViewsBySession.set(d.sessionId, (prevViewsBySession.get(d.sessionId) || 0) + 1);
     }
     let prevBounceSessions = 0;
     for (const [, cnt] of prevViewsBySession) {
@@ -325,20 +306,16 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
       .map(([name, value]) => ({
         name,
         value: Math.round((value / sourceTotal) * 1000) / 10,
-        color: SOURCE_COLORS[name] || SOURCE_COLORS.Other!,
+        color: SOURCE_COLORS[name] || SOURCE_COLORS["Other"]!,
       }))
       .sort((a, b) => b.value - a.value);
 
-    const deviceTotal = totalViews || 1;
     const devices = ["Desktop", "Mobile", "Tablet"].map((device) => ({
       device,
       views: deviceCount.get(device) || 0,
     }));
 
-    const funnelMap = new Map<
-      string,
-      { views: number; unique: Set<string> }
-    >();
+    const funnelMap = new Map<string, { views: number; unique: Set<string> }>();
     const funnelLabelByPath = new Map<string, string>();
     for (const d of currentDocs) {
       if (!isFunnelPath(d.path, d.kind)) continue;
@@ -349,7 +326,7 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
       const f = funnelMap.get(key)!;
       f.views += 1;
       f.unique.add(d.sessionId);
-      const doc = d as { funnelLabel?: string };
+      const doc = d as any;
       if (
         !funnelLabelByPath.has(key) &&
         typeof doc.funnelLabel === "string" &&
@@ -369,14 +346,13 @@ export const getPageViewsOverview = async (req: Request, res: Response) => {
       .map(([url, agg], i) => {
         const prev = prevFunnelMap.get(url) || 0;
         const unique = agg.unique.size;
-        const convRate = 0;
         return {
           name: funnelLabelByPath.get(url) || funnelDisplayName(url),
           url,
           views: agg.views,
           unique,
           conversions: 0,
-          convRate,
+          convRate: 0,
           change: pctChange(agg.views, prev),
           color: FUNNEL_COLORS[i % FUNNEL_COLORS.length]!,
         };
@@ -439,15 +415,12 @@ export const getPageViewsSeries = async (req: Request, res: Response) => {
     const docs = await SitePageView.find({
       path: targetPath,
       visitedAt: { $gte: start, $lte: end },
-    })
+    } as any)
       .lean()
       .exec();
 
     const dailySlots = buildDailyLabels(start, end, days);
-    const dailyMap = new Map<
-      string,
-      { views: number; unique: Set<string> }
-    >();
+    const dailyMap = new Map<string, { views: number; unique: Set<string> }>();
     for (const s of dailySlots) {
       dailyMap.set(s.key, { views: 0, unique: new Set() });
     }
@@ -516,7 +489,6 @@ function timeAgo(date: Date): string {
 
 /**
  * Admin: list recent unique visitors with their journey stage.
- * ?range=7d|30d|90d (default 30d)  &limit=N (default 100)
  */
 export const getVisitorJourney = async (req: Request, res: Response) => {
   try {
@@ -529,12 +501,11 @@ export const getVisitorJourney = async (req: Request, res: Response) => {
 
     const docs = await SitePageView.find({
       visitedAt: { $gte: start, $lte: end },
-    })
+    } as any)
       .sort({ visitedAt: -1 })
       .lean()
       .exec();
 
-    // Build per-session aggregation
     const sessionMap = new Map<
       string,
       {
@@ -563,18 +534,9 @@ export const getVisitorJourney = async (req: Request, res: Response) => {
       const s = sessionMap.get(d.sessionId)!;
       s.visits += 1;
       s.paths.add(d.path);
-      // Update lastSeen if current visit is more recent
-      if (new Date(d.visitedAt) > s.lastSeen) {
-        s.lastSeen = new Date(d.visitedAt);
-      }
-      // Update firstSeen if current visit is older (to get the true first visit)
-      if (new Date(d.visitedAt) < s.firstSeen) {
-        s.firstSeen = new Date(d.visitedAt);
-      }
-      // Capture email if it exists and hasn't been set yet for this session
-      if (!s.email && (d as any).email) {
-        s.email = (d as any).email;
-      }
+      if (new Date(d.visitedAt) > s.lastSeen) s.lastSeen = new Date(d.visitedAt);
+      if (new Date(d.visitedAt) < s.firstSeen) s.firstSeen = new Date(d.visitedAt);
+      if (!s.email && (d as any).email) s.email = (d as any).email;
     }
 
     const COLORS_LIST = ["#6366F1", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6"];
@@ -585,7 +547,6 @@ export const getVisitorJourney = async (req: Request, res: Response) => {
       .map(([sessionId, s]) => {
         const pages = s.paths.size;
         const stage = inferStage(s.visits, pages);
-        // Calculate session duration
         const durationMs = s.lastSeen.getTime() - s.firstSeen.getTime();
         const durationSeconds = Math.floor(durationMs / 1000);
         const durationMinutes = Math.floor(durationSeconds / 60);
@@ -594,11 +555,10 @@ export const getVisitorJourney = async (req: Request, res: Response) => {
           durationMinutes > 0
             ? `${durationMinutes}m ${remainingSeconds}s`
             : `${remainingSeconds}s`;
-
-        const initials = sessionId.slice(-2).toUpperCase(); // Still use last two chars for initials
+        const initials = sessionId.slice(-2).toUpperCase();
         const color = COLORS_LIST[s.colorIdx] ?? COLORS_LIST[0]!;
         return {
-          id: sessionId, // Use full sessionId as ID
+          id: sessionId,
           sessionId,
           email: s.email || null,
           lastSeen: timeAgo(s.lastSeen),
@@ -608,8 +568,8 @@ export const getVisitorJourney = async (req: Request, res: Response) => {
           stage,
           initials,
           color,
-          entryPage: resolvePageMeta(s.entryPage).label, // Resolve entry page label
-          pageList: Array.from(s.paths).slice(0, 8).map(p => resolvePageMeta(p).label), // Resolve pageList labels
+          entryPage: resolvePageMeta(s.entryPage).label,
+          pageList: Array.from(s.paths).slice(0, 8).map((p) => resolvePageMeta(p).label),
         };
       });
 
@@ -622,7 +582,6 @@ export const getVisitorJourney = async (req: Request, res: Response) => {
 
 /**
  * Admin: Download visitor journey data as a CSV.
- * ?range=7d|30d|90d (default 30d)
  */
 export const downloadVisitorJourney = async (req: Request, res: Response) => {
   try {
@@ -634,12 +593,11 @@ export const downloadVisitorJourney = async (req: Request, res: Response) => {
 
     const docs = await SitePageView.find({
       visitedAt: { $gte: start, $lte: end },
-    })
+    } as any)
       .sort({ visitedAt: -1 })
       .lean()
       .exec();
 
-    // Build per-session aggregation
     const sessionMap = new Map<
       string,
       {
@@ -665,15 +623,9 @@ export const downloadVisitorJourney = async (req: Request, res: Response) => {
       const s = sessionMap.get(d.sessionId)!;
       s.visits += 1;
       s.paths.add(d.path);
-      if (new Date(d.visitedAt) > s.lastSeen) {
-        s.lastSeen = new Date(d.visitedAt);
-      }
-      if (new Date(d.visitedAt) < s.firstSeen) {
-        s.firstSeen = new Date(d.visitedAt);
-      }
-      if (!s.email && (d as any).email) {
-        s.email = (d as any).email;
-      }
+      if (new Date(d.visitedAt) > s.lastSeen) s.lastSeen = new Date(d.visitedAt);
+      if (new Date(d.visitedAt) < s.firstSeen) s.firstSeen = new Date(d.visitedAt);
+      if (!s.email && (d as any).email) s.email = (d as any).email;
     }
 
     const visitors = Array.from(sessionMap.entries())
@@ -689,7 +641,6 @@ export const downloadVisitorJourney = async (req: Request, res: Response) => {
           durationMinutes > 0
             ? `${durationMinutes}m ${remainingSeconds}s`
             : `${remainingSeconds}s`;
-
         return {
           sessionId,
           email: s.email || "Unknown",
@@ -703,7 +654,6 @@ export const downloadVisitorJourney = async (req: Request, res: Response) => {
         };
       });
 
-    // Generate CSV
     if (visitors.length === 0) {
       return res.status(200).send("No data available for this range.");
     }

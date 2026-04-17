@@ -8,8 +8,8 @@ import {
   changeClientPassword,
   archiveClient,
   restoreClient,
-} from "./client.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+} from "./client.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
 
 const router = express.Router();
 

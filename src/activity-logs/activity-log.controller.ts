@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import type { Request, Response } from "express";
-import ActivityLog, { type IActivityLog } from "./Activitylog.ts";
+import ActivityLog, { type IActivityLog } from "./Activitylog.js";
 
 // Get all activity logs with filtering
 export const getAllActivityLogs = async (req: Request, res: Response) => {

@@ -7,9 +7,9 @@ import {
   updateService,
   toggleServiceStatus,
   deleteService,
-} from "./service.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
-import upload from "../middlewares/multer.ts";
+} from "./service.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
+import upload from "../middlewares/multer.js";
 
 const router = express.Router();
 

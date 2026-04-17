@@ -7,14 +7,14 @@ import {
   getComparison,
   getCaseStudyStats,
   getEngagementMetrics, // <--- NEW FUNCTION
-} from "./dashboard.controller.ts";
+} from "./dashboard.controller.js";
 import {
   getPageViewsOverview,
   getPageViewsSeries,
   getVisitorJourney,
   downloadVisitorJourney,
-} from "../site-page-views/site-page-view.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+} from "../site-page-views/site-page-view.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
 
 const router = express.Router();
 

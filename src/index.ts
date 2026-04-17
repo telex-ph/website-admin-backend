@@ -1,8 +1,10 @@
+import "dotenv/config";
+
 import express from "express";
 import mongoose from "mongoose";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import dns from "node:dns"; // Import DNS module
+import dns from "node:dns";
 
 // ============================================
 // 🌐 DNS FIX FOR WINDOWS (ECONNREFUSED)
@@ -13,33 +15,33 @@ dns.setServers(["8.8.8.8", "1.1.1.1"]);
 // ============================================
 // 📦 ROUTER IMPORTS
 // ============================================
-import authRouter from "./auth/auth.router.ts";
-import blogRouter from "./blogs/blog.router.ts";
-import userRouter from "./users/user.router.ts";
-import caseStudyRouter from "./casestudy/casestudy.router.ts";
-import dashboardRouter from "./dashboard/dashboard.router.ts";
-import activityLogRouter from "./activity-logs/activity-log.router.ts";
-import serviceRouter from "./services/service.router.ts";
-import pageViewRouter from "./page-views/page-view.router.ts";
-import clientRouter from "./client/client.router.ts";
-import appointmentRouter from "./appointments/appointment.router.ts";
-import applicantRouter from "./applicants/applicant.routes.ts";
-import vaUsersRouter   from "./va-users/va-users.routes.ts";
-import vaAuthRouter    from "./va-users/va-auth.routes.ts";
-import { trackSitePageView } from "./site-page-views/site-page-view.controller.ts";
-import { ingestGhlPageView } from "./ghl-page-views/ghl-page-view.controller.ts";
-import ghlFunnelClientRouter from "./ghl-page-views/ghl-page-view.routes.ts";
+import authRouter from "./auth/auth.router.js";
+import blogRouter from "./blogs/blog.router.js";
+import userRouter from "./users/user.router.js";
+import caseStudyRouter from "./casestudy/casestudy.router.js";
+import dashboardRouter from "./dashboard/dashboard.router.js";
+import activityLogRouter from "./activity-logs/activity-log.router.js";
+import serviceRouter from "./services/service.router.js";
+import pageViewRouter from "./page-views/page-view.router.js";
+import clientRouter from "./client/client.router.js";
+import appointmentRouter from "./appointments/appointment.router.js";
+import applicantRouter from "./applicants/applicant.routes.js";
+import vaUsersRouter from "./va-users/va-users.routes.js";
+import vaAuthRouter from "./va-users/va-auth.routes.js";
+import { trackSitePageView } from "./site-page-views/site-page-view.controller.js";
+import { ingestGhlPageView } from "./ghl-page-views/ghl-page-view.controller.js";
+import ghlFunnelClientRouter from "./ghl-page-views/ghl-page-view.routes.js";
 
 // ============================================
 // 🌱 SEED IMPORTS
 // ============================================
-import { seedServices } from "./services/seed-services.ts";
-import { seedPageViews } from "./page-views/seed-page-views.ts";
+import { seedServices } from "./services/seed-services.js";
+import { seedPageViews } from "./page-views/seed-page-views.js";
 
 // ============================================
 // 🔐 MIDDLEWARE IMPORTS
 // ============================================
-import { verifyJwt } from "./middlewares/verify-jwt.middleware.ts";
+import { verifyJwt } from "./middlewares/verify-jwt.middleware.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -49,7 +51,6 @@ const port = process.env.PORT || 5000;
 // ============================================
 app.use(
   cors({
-    origin: ["http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3000", "http://127.0.0.1:3000"],
     origin: (origin, callback) => {
       callback(null, true);
     },
@@ -111,6 +112,7 @@ app.use("/api/activity-logs", verifyJwt, activityLogRouter);
 // Page Views: GET routes are public, POST is protected
 app.use("/api/page-views", pageViewRouter);
 app.use("/page-views", pageViewRouter);
+
 app.use("/clients", verifyJwt, clientRouter);
 app.use("/api/clients", verifyJwt, clientRouter);
 
@@ -138,7 +140,9 @@ app.get("/", (req, res) => {
 const mongoUri: string = process.env.MONGO_URI || "";
 
 if (!mongoUri) {
-  console.error("❌ MONGO_URI environment variable is not set. Server will not start.");
+  console.error(
+    "❌ MONGO_URI environment variable is not set. Server will not start."
+  );
   process.exit(1);
 }
 

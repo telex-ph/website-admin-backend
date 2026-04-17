@@ -1,10 +1,10 @@
 import express from "express";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
 import { 
   getGhlFunnelClientDashboard, 
   getFunnelsAnalytics, 
   getFunnelDetailAnalytics 
-} from "./ghl-page-view.controller.ts";
+} from "./ghl-page-view.controller.js";
 
 const router = express.Router();
 

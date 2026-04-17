@@ -1,13 +1,13 @@
 import type { Request, Response } from "express";
-import CaseStudy from "./CaseStudy.ts";
-import { toSlug } from "../common/utils/to-slug.util.ts";
+import CaseStudy from "./CaseStudy.js";
+import { toSlug } from "../common/utils/to-slug.util.js";
 import {
   getParamSchema,
   type GetParamDto,
-} from "../common/dto/get-param.dto.ts";
-import uploadFile from "../common/utils/upload-file.util.ts";
-import { trackView } from "../common/services/analytics.service.ts";
-import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.ts";
+} from "../common/dto/get-param.dto.js";
+import uploadFile from "../common/utils/upload-file.util.js";
+import { trackView } from "../common/services/analytics.service.js";
+import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.js";
 
 // Helper function to extract user ID from request (tries all possible locations)
 const getUserId = (req: Request): string | null => {

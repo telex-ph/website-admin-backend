@@ -8,8 +8,8 @@ import {
   getApplicant,
   approveApplicant,
   rejectApplicant,
-} from './applicant.controller.ts';
-import { verifyJwt } from '../middlewares/verify-jwt.middleware.ts';
+} from './applicant.controller.js';
+import { verifyJwt } from '../middlewares/verify-jwt.middleware.js';
 
 const router = Router();
 

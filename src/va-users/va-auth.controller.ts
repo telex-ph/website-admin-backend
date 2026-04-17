@@ -2,7 +2,7 @@
 import type { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import * as jose from 'jose';
-import VAUser from './VAUser.model.ts';
+import VAUser from './VAUser.model.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const ACCESS_TOKEN_MS  = 8  * 60 * 60 * 1000; // 8 hours

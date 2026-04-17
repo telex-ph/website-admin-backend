@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { authenticate, authenticateClient, registerClient, logout, refresh, getClientProfile } from "./auth.controller.ts";
+import { authenticate, authenticateClient, registerClient, logout, refresh, getClientProfile } from "./auth.controller.js";
 // Import ang verifyJwt middleware mula sa middlewares folder
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
 
 const router = Router();
 

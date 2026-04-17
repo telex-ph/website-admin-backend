@@ -11,10 +11,10 @@ import {
   unlikeBlog,
   checkLikeStatus,
   aiPublishBlog,
-} from "./blog.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
-import { verifyApiKey } from "../middlewares/api-key.middleware.ts";
-import upload from "../middlewares/multer.ts";
+} from "./blog.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
+import { verifyApiKey } from "../middlewares/api-key.middleware.js";
+import upload from "../middlewares/multer.js";
 import mongoose from "mongoose";
 
 const router = express.Router();

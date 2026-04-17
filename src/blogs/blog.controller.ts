@@ -1,16 +1,16 @@
 import type { Request, Response } from "express";
-import Blog, { type IBlog, type IContentSection } from "./Blog.ts";
-import { createBlogSchema, type CreateBlogDto } from "./dto/create-blog.dto.ts";
-import { toSlug } from "../common/utils/to-slug.util.ts";
+import Blog, { type IBlog, type IContentSection } from "./Blog.js";
+import { createBlogSchema, type CreateBlogDto } from "./dto/create-blog.dto.js";
+import { toSlug } from "../common/utils/to-slug.util.js";
 import {
   getParamSchema,
   type GetParamDto,
-} from "../common/dto/get-param.dto.ts";
-import { updateBlogSchema, type UpdateBlogDto } from "./dto/update-blog.dto.ts";
+} from "../common/dto/get-param.dto.js";
+import { updateBlogSchema, type UpdateBlogDto } from "./dto/update-blog.dto.js";
 import { Types } from "mongoose";
-import uploadFile from "../common/utils/upload-file.util.ts";
-import { trackView } from "../common/services/analytics.service.ts";
-import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.ts";
+import uploadFile from "../common/utils/upload-file.util.js";
+import { trackView } from "../common/services/analytics.service.js";
+import { logActivity, getUserEmailFromRequest, type ActivityAction } from "../common/services/activity-log.service.js";
 import mongoose from "mongoose";
 
 // ============================================

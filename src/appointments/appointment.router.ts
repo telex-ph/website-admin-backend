@@ -13,8 +13,8 @@ import {
   confirmAppointment,
   getMyAppointments,
   getUpcomingAppointments,
-} from "./appointment.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+} from "./appointment.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
 
 const appointmentRouter = Router();
 

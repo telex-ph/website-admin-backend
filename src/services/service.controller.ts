@@ -1,13 +1,13 @@
 import type { Request, Response } from "express";
-import Service, { type IService } from "./Service.ts";
-import { createServiceSchema, type CreateServiceDto } from "./dto/create-service.dto.ts";
-import { updateServiceSchema, type UpdateServiceDto } from "./dto/update-service.dto.ts";
+import Service, { type IService } from "./Service.js";
+import { createServiceSchema, type CreateServiceDto } from "./dto/create-service.dto.js";
+import { updateServiceSchema, type UpdateServiceDto } from "./dto/update-service.dto.js";
 import {
   getParamSchema,
   type GetParamDto,
-} from "../common/dto/get-param.dto.ts";
-import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.ts";
-import uploadFile from "../common/utils/upload-file.util.ts";
+} from "../common/dto/get-param.dto.js";
+import { logActivity, getUserEmailFromRequest } from "../common/services/activity-log.service.js";
+import uploadFile from "../common/utils/upload-file.util.js";
 
 // ============================================
 // 🖼️ HELPER: Upload image file to Cloudinary

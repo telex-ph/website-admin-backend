@@ -1,4 +1,4 @@
-import Applicant, { type IApplicant } from './applicant.model.ts';
+import Applicant, { type IApplicant } from './applicant.model.js';
 import crypto from 'crypto';
 
 function generateConfirmCode(): string {

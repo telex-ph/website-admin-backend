@@ -11,9 +11,9 @@ import {
   likeCaseStudy,
   unlikeCaseStudy,
   checkCaseStudyLikeStatus,
-} from "./casestudy.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
-import upload from "../middlewares/multer.ts";
+} from "./casestudy.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
+import upload from "../middlewares/multer.js";
 
 const router = express.Router();
 

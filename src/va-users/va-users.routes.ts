@@ -4,8 +4,8 @@ import {
   validateActivationToken,
   activateAccount,
   listVAUsers,
-} from './va-users.controller.ts';
-import { verifyJwt } from '../middlewares/verify-jwt.middleware.ts';
+} from './va-users.controller.js';
+import { verifyJwt } from '../middlewares/verify-jwt.middleware.js';
 
 const router = Router();
 

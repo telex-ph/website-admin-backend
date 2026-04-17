@@ -1,14 +1,14 @@
 import type { Request, Response } from "express";
-import User from "../users/User.ts";
-import Client from "../client/Client.ts";
+import User from "../users/User.js";
+import Client from "../client/Client.js";
 import * as jose from "jose";
 import bcrypt from "bcrypt";
 import {
   createAccessToken,
   createRefreshToken,
-} from "./helpers/create-token.helper.ts";
-import type { AuthPayload } from "./types/auth-payload.type.ts";
-import { logActivity } from "../common/services/activity-log.service.ts";
+} from "./helpers/create-token.helper.js";
+import type { AuthPayload } from "./types/auth-payload.type.js";
+import { logActivity } from "../common/services/activity-log.service.js";
 
 // This value should be in milliseconds
 const ACCESS_TOKEN_EXPIRATION_MS = 8 * 60 * 60 * 1000; // 8 hours

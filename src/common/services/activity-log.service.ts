@@ -1,4 +1,4 @@
-import ActivityLog from "../../activity-logs/Activitylog.ts";
+import ActivityLog from "../../activity-logs/Activitylog.js";
 import type { Request } from "express";
 
 export type ActivityAction = "CREATED" | "UPDATED" | "DELETED" | "LOGIN" | "LOGOUT" | "ARCHIVED" | "RESTORED";

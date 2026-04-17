@@ -1,6 +1,6 @@
 // src/va-users/va-auth.routes.ts
 import { Router } from 'express';
-import { authenticateVA, getVAProfile, logoutVA } from './va-auth.controller.ts';
+import { authenticateVA, getVAProfile, logoutVA } from './va-auth.controller.js';
 
 const router = Router();
 

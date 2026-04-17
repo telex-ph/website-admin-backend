@@ -1,4 +1,4 @@
-import Service from './Service.ts';
+import Service from './Service.js';
 
 const initialServices = [
   {
@@ -23,8 +23,8 @@ const initialServices = [
     isActive: true,
   },
   {
-    serviceId: 'courses-products',
-    name: 'Courses / Products',
+    serviceId: 'courses-produ.js',
+    name: 'Courses / Produ.js',
     description: 'Launch and manage online courses, digital products, and e-learning platforms. Monetize your expertise with robust product delivery systems.',
     badge: 'Education',
     isActive: true,

@@ -1,13 +1,13 @@
 import type { Request, Response } from "express";
-import { createUserSchema, type CreateUserDto } from "./dto/create-user.dto.ts";
-import { updateUserSchema, type UpdateUserDto } from "./dto/update-user.dto.ts";
+import { createUserSchema, type CreateUserDto } from "./dto/create-user.dto.js";
+import { updateUserSchema, type UpdateUserDto } from "./dto/update-user.dto.js";
 import {
   getParamSchema,
   type GetParamDto,
-} from "../common/dto/get-param.dto.ts";
+} from "../common/dto/get-param.dto.js";
 import bcrypt from "bcrypt";
-import User from "./User.ts";
-import ActivityLog from "../activity-logs/Activitylog.ts";
+import User from "./User.js";
+import ActivityLog from "../activity-logs/Activitylog.js";
 
 // Helper function to create activity log
 const createActivityLog = async (

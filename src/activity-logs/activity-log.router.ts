@@ -7,8 +7,8 @@ import {
   deleteOldLogs,
   getUnreadCount,
   markAsRead,
-} from "./activity-log.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+} from "./activity-log.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
 
 const router = express.Router();
 

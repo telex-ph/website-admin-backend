@@ -10,8 +10,8 @@ import {
   archiveUser,
   restoreUser,
   updateTheme
-} from "./user.controller.ts";
-import { verifyJwt } from "../middlewares/verify-jwt.middleware.ts";
+} from "./user.controller.js";
+import { verifyJwt } from "../middlewares/verify-jwt.middleware.js";
 const router = express.Router();
 
 // Middleware: Main Administrators only (role === 1)
